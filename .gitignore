@@ -1,10 +1,48 @@
+# Virtual environments
 .venv/
-.vscode/
-.claude/
+venv/
+env/
+ENV/
+
+# Python bytecode / caches
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Coverage / tooling
+.coverage
+htmlcov/
+.tox/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Project tooling
+.claude/
+
+# Secrets / local config
+.env
+.env.*
+*.local
+
+# Captured templates (keep folder, ignore images)
 templates/*.png
 templates/*.jpg
 templates/*.jpeg
+templates/*.bmp
 !templates/.gitkeep
+
+# OS
 .DS_Store
+Thumbs.db

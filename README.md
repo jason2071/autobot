@@ -1,9 +1,10 @@
 # autobot
 
-บอท auto-click หาเป้าหมายบนหน้าจอด้วย **template/image match** (เสริม **color/pixel** detection)
-แล้วคลิกอัตโนมัติ. ควบคุมผ่าน GUI ปุ่ม Start/Stop. รองรับ **macOS + Windows**.
+Auto-click bot that finds a target on screen via **template/image match**
+(plus **color/pixel** detection) and clicks it automatically. Controlled with a
+Start/Stop GUI. Supports **macOS + Windows**.
 
-## ติดตั้ง
+## Install
 
 macOS / Linux:
 ```bash
@@ -19,100 +20,108 @@ python -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-`requirements.txt` ลง dependency ตาม OS เอง (Quartz บน macOS, pywin32 บน Windows).
+`requirements.txt` installs OS-specific deps automatically (Quartz on macOS,
+pywin32 on Windows).
 
-## สิทธิ์ระบบ
+## System permissions
 
 **macOS** — System Settings → Privacy & Security:
 
-1. **Screen Recording** — ให้ terminal (หรือ app ที่รัน Python) capture จอได้
-2. **Accessibility** — ให้ส่ง mouse click ได้
+1. **Screen Recording** — lets the terminal (or the app running Python) capture the screen
+2. **Accessibility** — lets it send mouse clicks
 
-เพิ่ม **Terminal.app** / **iTerm** (หรือ IDE ที่ใช้รัน) เข้าทั้ง 2 รายการ แล้วปิด-เปิด terminal ใหม่.
+Add **Terminal.app** / **iTerm** (or the IDE you run from) to both lists, then
+restart the terminal.
 
-**Windows** — ปกติไม่ต้องตั้งสิทธิ์. แต่ถ้า target app รันแบบ Administrator
-ต้องรัน Python แบบ Administrator ด้วย (ไม่งั้นส่ง click ไม่เข้า).
+**Windows** — usually no setup needed. But if the target app runs as
+Administrator, run Python as Administrator too, otherwise clicks won't reach it.
 
-## ใช้งาน
+## Usage
 
-1. แคปรูปปุ่ม/ไอเทมที่จะให้หา เซฟเป็น `.png` (crop ให้พอดี ไม่มีพื้นหลังเยอะ) ใส่ใน `templates/`
-2. รัน:
+1. Capture the button/item to look for, save it as `.png` (crop tightly, little
+   background) into `templates/`.
+2. Run:
    ```bash
    python main.py
    ```
-3. ในหน้าต่าง:
-   - **เลือก template…** → เลือกไฟล์ (เลือกหลายไฟล์ได้)
-   - **Threshold** — ความแม่น (0.8 เริ่มต้น; สูง = เข้มงวด)
-   - **Interval (ms)** — เว้นช่วงสแกน
-   - **Click mode** — `first` คลิกจุดแรก / `all` คลิกทุกจุดที่เจอ
-   - **Target** — เลือกขอบเขตที่จะสแกน/คลิก (ดูด้านล่าง)
-   - **Background click (ไม่ขยับเมาส์)** — ติ๊ก = คลิกโดยไม่ขยับ cursor จริง (ดูด้านล่าง)
+3. In the window:
+   - **Choose template files** → pick one or more files
+   - **Threshold** — match strictness (0.8 default; higher = stricter)
+   - **Interval (ms)** — delay between scans
+   - **Click mode** — `first` clicks the first match / `all` clicks every match
+   - **Target** — area to scan/click (see below)
+   - **Background click** — on = click without moving the real cursor (see below)
    - **Start** / **Stop**
 
-### Target — เกมไม่เต็มจอ
-ไม่ต้องสแกนทั้งจอ เลือกขอบเขตได้ 3 แบบ:
-- **ทั้งจอ** (default) — สแกนทุกพิกเซล
-- **เลือก window** — กด **🔄 refresh** แล้วเลือก window ของเกม/แอปจาก dropdown →
-  ระบบเติม region = ขอบเขต window นั้นให้อัตโนมัติ. ถ้าย้าย/ปรับขนาด window แล้ว
-  กด refresh + เลือกใหม่
-- **◰ ตีกรอบพื้นที่** — ลากเมาส์วาดกรอบบนหน้าจอเอง (Esc ยกเลิก)
+### Target — games that aren't fullscreen
+You don't have to scan the whole screen. Three options:
+- **Full screen** (default) — scan every pixel
+- **Pick a window** — press **🔄 Refresh**, then pick the game/app window from
+  the dropdown → the region is filled with that window's bounds automatically.
+  If you move/resize the window, press Refresh and pick it again
+- **◰ Drag area** — drag a rectangle on screen yourself (Esc cancels)
 
-ทั้งสองแบบเติมลงช่อง **region** (`top,left,width,height` physical px) ซึ่งแก้มือได้.
-ว่าง = ทั้งจอ. พิกัด Retina ถูกคูณ scale ให้อัตโนมัติ.
+Both fill the **region** field (`top,left,width,height` in physical px), which
+you can edit by hand. Empty = full screen. Retina coordinates are scaled
+automatically.
 
-### Background click (ไม่ขยับเมาส์)
-ติ๊ก **Background click** = บอทส่ง click ตรงไปยัง window ใต้จุดเป้าหมาย โดย
-**ไม่ขยับ cursor จริงของคุณ** — ใช้เครื่องทำอย่างอื่นไปพร้อมกันได้.
+### Background click
+With **Background click** on, the bot posts the click directly to the window
+under the target point **without moving your real cursor** — so you can keep
+using the machine for something else.
 
 - macOS: Quartz `CGEventPostToPid`
-- Windows: Win32 `PostMessage` (WM_LBUTTONDOWN/UP) ไปยัง window ใต้จุด
+- Windows: Win32 `PostMessage` (WM_LBUTTONDOWN/UP) to the window under the point
 
-ข้อจำกัด:
-- เกม/แอปที่อ่าน raw HID หรือมี anti-cheat อาจ **ไม่รับ** synthetic event
-- target ต้องเป็น window ปกติที่มองเห็นใต้จุดนั้น
+Limitations:
+- games/apps that read raw HID input or have anti-cheat may **ignore** synthetic events
+- the target must be a normal, visible window under that point
 
-ถ้าไม่ติ๊ก = โหมด foreground (pyautogui) ขยับ cursor จริงไปคลิก รองรับทุกแอปแต่แย่งเมาส์.
+With it off = foreground mode (pyautogui) moves the real cursor to click; works
+with any app but takes over your mouse.
 
-### หยุดฉุกเฉิน
-- โหมด foreground: ลากเมาส์ไปมุมจอ (pyautogui FAILSAFE) หรือกด **Stop**
-- โหมด background: FAILSAFE ใช้ไม่ได้ (เมาส์ไม่ขยับ) — ใช้ปุ่ม **Stop**
+### Emergency stop
+- foreground mode: drag the mouse to a screen corner (pyautogui FAILSAFE) or press **Stop**
+- background mode: FAILSAFE doesn't apply (mouse never moves) — use the **Stop** button
 
 ## Retina note
 
-จอ Retina แคปเป็น physical pixels (2x) แต่คลิกด้วย logical points. โค้ดคำนวณ scale
-อัตโนมัติใน `clicker.py` (logical_width / physical_width). พิกัด Region ที่กรอกใช้
+Retina displays are captured in physical pixels (2x) but clicks use logical
+points. The scale is computed automatically in `clicker.py`
+(logical_width / physical_width). Region coordinates you enter are in
 **physical px**.
 
-## Makefile (mac/Linux, หรือ Git Bash/WSL บน Windows)
+## Makefile (mac/Linux, or Git Bash/WSL on Windows)
 
 ```bash
-make install   # สร้าง venv + ลง deps
-make run        # เปิด GUI
+make install   # create venv + install deps
+make run        # launch GUI
 make test       # smoke test
-make detect IMG=shot.png TPL=btn.png   # ทดสอบ template match
-make clean      # ลบ venv + __pycache__
-make help       # ดูคำสั่งทั้งหมด
+make detect IMG=shot.png TPL=btn.png   # test template match
+make clean      # remove venv + __pycache__
+make help       # list all targets
 ```
 
-## ทดสอบ detector (ไม่ต้องคลิกจริง)
+## Test the detector (no real clicks)
 
 ```bash
 python -m src.detector screenshot.png template.png
 ```
-พิมพ์ตำแหน่ง + score ที่เจอ.
+Prints the positions + scores found.
 
-## โครงสร้าง
+## Structure
 
 ```
-src/capture.py   — ScreenCapture (mss)
-src/detector.py  — match_template() + find_color()
-src/clicker.py   — Clicker (Retina scaling + rate limit + failsafe)
-src/bot.py       — BotEngine (loop บน thread, start/stop)
-src/gui.py       — tkinter App
-main.py          — entry
+src/capture.py       — ScreenCapture (mss)
+src/detector.py      — match_template() + find_color()
+src/clicker.py       — Clicker (Retina scaling + rate limit + failsafe + background backend)
+src/window_picker.py — list_windows() (macOS Quartz / Windows Win32)
+src/bot.py           — BotEngine (loop on a thread, start/stop)
+src/gui.py           — customtkinter App
+main.py              — entry
 ```
 
-## ข้อจำกัด / TODO
-- ยังไม่มี drag-select region UI (กรอกพิกัดเอง)
-- ยังไม่รองรับ multi-monitor switching, OCR
-- color mode ยังตั้งค่าผ่าน `BotConfig` เท่านั้น (ยังไม่มีช่องใน GUI)
+## Limitations / TODO
+- no multi-monitor switching yet
+- OCR not supported
+- color mode is configured via `BotConfig` only (no GUI field yet)

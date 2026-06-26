@@ -102,11 +102,11 @@ class App:
             inner, text="TEMPLATES", font=self.f_section, text_color=MUTED
         ).pack(anchor="w")
         ctk.CTkButton(
-            inner, text="＋  เลือกไฟล์ template", font=self.f_label,
+            inner, text="＋  Choose template files", font=self.f_label,
             fg_color=FIELD, hover_color="#343846", text_color=TEXT,
             corner_radius=10, height=38, anchor="w", command=self._pick_templates,
         ).pack(fill="x", pady=(6, 4))
-        self.templates_label = self._muted(inner, "ยังไม่ได้เลือก")
+        self.templates_label = self._muted(inner, "No template selected")
         self.templates_label.pack(anchor="w", pady=(0, 10))
 
         # threshold
@@ -155,9 +155,9 @@ class App:
         # target
         ctk.CTkLabel(inner, text="TARGET", font=self.f_section,
                      text_color=MUTED).pack(anchor="w", pady=(12, 0))
-        self.window_choice = tk.StringVar(value="ทั้งจอ")
+        self.window_choice = tk.StringVar(value="Full screen")
         self.window_menu = ctk.CTkOptionMenu(
-            inner, variable=self.window_choice, values=["ทั้งจอ"],
+            inner, variable=self.window_choice, values=["Full screen"],
             font=self.f_label, fg_color=FIELD, button_color=FIELD,
             button_hover_color="#343846", corner_radius=10, height=36,
             command=self._on_window_pick,
@@ -173,7 +173,7 @@ class App:
             command=self._refresh_windows,
         ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ctk.CTkButton(
-            tbtns, text="◰  ตีกรอบพื้นที่", font=self.f_sub, fg_color=FIELD,
+            tbtns, text="◰  Drag area", font=self.f_sub, fg_color=FIELD,
             hover_color="#343846", text_color=TEXT, corner_radius=10, height=32,
             command=self._drag_region,
         ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
@@ -181,7 +181,7 @@ class App:
         self.region = tk.StringVar(value="")
         ctk.CTkEntry(
             inner, textvariable=self.region, font=self.f_value,
-            placeholder_text="top, left, width, height  —  ว่าง = ทั้งจอ",
+            placeholder_text="top, left, width, height  —  empty = full screen",
             fg_color=FIELD, border_width=0, corner_radius=10, height=36,
             justify="center",
         ).pack(fill="x", pady=(8, 4))
@@ -193,7 +193,7 @@ class App:
         sw_row.columnconfigure(0, weight=1)
         ctk.CTkLabel(sw_row, text="Background click", font=self.f_label,
                      text_color=TEXT).grid(row=0, column=0, sticky="w")
-        self._muted(sw_row, "ไม่ขยับเมาส์จริง").grid(row=1, column=0, sticky="w")
+        self._muted(sw_row, "don't move the real cursor").grid(row=1, column=0, sticky="w")
         self.background = tk.BooleanVar(value=True)
         ctk.CTkSwitch(
             sw_row, text="", variable=self.background, onvalue=True, offvalue=False,
@@ -214,7 +214,7 @@ class App:
         self.dot = ctk.CTkLabel(status, text="●", font=ctk.CTkFont(size=13),
                                 text_color=MUTED, width=14)
         self.dot.pack(side="left")
-        self.status = tk.StringVar(value="พร้อม")
+        self.status = tk.StringVar(value="Ready")
         ctk.CTkLabel(status, textvariable=self.status, font=self.f_sub,
                      text_color=MUTED).pack(side="left", padx=(4, 0))
 
@@ -222,9 +222,9 @@ class App:
     def _refresh_windows(self) -> None:
         self.windows = window_picker.list_windows()
         titles = [w.title for w in self.windows]
-        self.window_menu.configure(values=["ทั้งจอ"] + titles)
+        self.window_menu.configure(values=["Full screen"] + titles)
         if self.window_choice.get() not in titles:
-            self.window_choice.set("ทั้งจอ")
+            self.window_choice.set("Full screen")
 
     def _set_region_logical(self, b: dict) -> None:
         rr = self.ratio
@@ -235,7 +235,7 @@ class App:
 
     def _on_window_pick(self, choice: str | None = None) -> None:
         choice = choice or self.window_choice.get()
-        if choice == "ทั้งจอ":
+        if choice == "Full screen":
             self.region.set("")
             return
         win = next((w for w in self.windows if w.title == choice), None)
@@ -256,7 +256,7 @@ class App:
         canvas.pack(fill="both", expand=True)
         canvas.create_text(
             ov.winfo_screenwidth() // 2, 40,
-            text="ลากเพื่อเลือกพื้นที่  •  Esc ยกเลิก",
+            text="Drag to select an area  •  Esc to cancel",
             fill="white", font=("SF Pro Text", 16),
         )
         s = {"x": 0, "y": 0, "rect": None}
@@ -285,13 +285,13 @@ class App:
         self.root.wait_window(ov)
 
         if result:
-            self.window_choice.set("ทั้งจอ")
+            self.window_choice.set("Full screen")
             self._set_region_logical(result)
 
     # --- actions -----------------------------------------------------------
     def _pick_templates(self) -> None:
         paths = filedialog.askopenfilenames(
-            title="เลือกรูป template",
+            title="Choose template images",
             filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp")],
         )
         if paths:
@@ -305,7 +305,7 @@ class App:
             return None
         parts = [p.strip() for p in text.replace(" ", ",").split(",") if p.strip()]
         if len(parts) != 4:
-            raise ValueError("region ต้องมี 4 ค่า: top,left,width,height")
+            raise ValueError("region needs 4 values: top,left,width,height")
         top, left, w, h = (int(p) for p in parts)
         return {"top": top, "left": left, "width": w, "height": h}
 
@@ -336,7 +336,7 @@ class App:
             self._set_status(f"error: {e}")
             return
         if not config.template_paths:
-            self._set_status("error: ยังไม่ได้เลือก template")
+            self._set_status("error: no template selected")
             return
 
         self.bot = BotEngine(config, on_status=self._set_status)
@@ -363,7 +363,7 @@ class App:
         def apply() -> None:
             self.status.set(msg)
             self.dot.configure(text_color=self._dot_color(msg))
-            if msg in ("stopped", "พร้อม") or msg.startswith("error"):
+            if msg in ("stopped", "Ready") or msg.startswith("error"):
                 self.toggle_btn.configure(text="▶   Start", fg_color=GREEN,
                                           hover_color=GREEN_HOVER)
 
