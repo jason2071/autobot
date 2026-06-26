@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 import customtkinter as ctk
+import numpy as np
 import pyautogui
 
 from .bot import BotConfig, BotEngine
@@ -105,7 +106,8 @@ class App:
                      text_color=MUTED).pack(anchor="w")
         self.det_mode = tk.StringVar(value="template")
         ctk.CTkSegmentedButton(
-            inner, values=["template", "color", "pixel"], variable=self.det_mode,
+            inner, values=["template", "color", "pixel", "tiles"],
+            variable=self.det_mode,
             command=self._switch_panel, font=self.f_label, height=36, corner_radius=10,
             fg_color=FIELD, selected_color=ACCENT, selected_hover_color=ACCENT_HOVER,
             unselected_color=FIELD, unselected_hover_color="#343846",
@@ -118,6 +120,7 @@ class App:
         self._build_template_panel(host)
         self._build_color_panel(host)
         self._build_pixel_panel(host)
+        self._build_tiles_panel(host)
         self._switch_panel("template")
 
         # interval + click mode (two columns)
@@ -310,6 +313,113 @@ class App:
             command=lambda v: self.pixel_tol_label.configure(text=f"{int(v)}"),
         ).pack(fill="x", pady=(2, 0))
 
+    def _build_tiles_panel(self, host) -> None:
+        p = ctk.CTkFrame(host, fg_color="transparent")
+        self.panels["tiles"] = p
+
+        self._muted(
+            p, "Magic Tiles 3 — set TARGET to the play area (4 lanes).\n"
+               "Foreground only: keeps the real cursor for tap & hold.",
+        ).pack(anchor="w", pady=(0, 8))
+
+        # lanes
+        lane_row = ctk.CTkFrame(p, fg_color="transparent")
+        lane_row.pack(fill="x", pady=(0, 6))
+        lane_row.columnconfigure(0, weight=1)
+        ctk.CTkLabel(lane_row, text="LANES", font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
+        self.tiles_lanes = tk.IntVar(value=4)
+        self.tiles_lanes_label = ctk.CTkLabel(lane_row, text="4", font=self.f_value,
+                                              text_color=ACCENT)
+        self.tiles_lanes_label.grid(row=0, column=1, sticky="e")
+        ctk.CTkSlider(
+            p, from_=1, to=8, number_of_steps=7, variable=self.tiles_lanes,
+            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
+            progress_color=ACCENT, fg_color=FIELD, height=16,
+            command=lambda v: self.tiles_lanes_label.configure(text=f"{int(v)}"),
+        ).pack(fill="x", pady=(2, 8))
+
+        # hit line position
+        hit_row = ctk.CTkFrame(p, fg_color="transparent")
+        hit_row.pack(fill="x", pady=(0, 6))
+        hit_row.columnconfigure(0, weight=1)
+        ctk.CTkLabel(hit_row, text="HIT LINE (% of height)", font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
+        self.tiles_hit = tk.IntVar(value=80)
+        self.tiles_hit_label = ctk.CTkLabel(hit_row, text="80", font=self.f_value,
+                                            text_color=ACCENT)
+        self.tiles_hit_label.grid(row=0, column=1, sticky="e")
+        ctk.CTkSlider(
+            p, from_=50, to=98, number_of_steps=48, variable=self.tiles_hit,
+            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
+            progress_color=ACCENT, fg_color=FIELD, height=16,
+            command=lambda v: self.tiles_hit_label.configure(text=f"{int(v)}"),
+        ).pack(fill="x", pady=(2, 8))
+
+        # contrast margin (tile darkness vs lane background)
+        dk_row = ctk.CTkFrame(p, fg_color="transparent")
+        dk_row.pack(fill="x", pady=(0, 6))
+        dk_row.columnconfigure(0, weight=1)
+        ctk.CTkLabel(dk_row, text="CONTRAST (vs background)", font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
+        self.tiles_margin = tk.IntVar(value=40)
+        self.tiles_margin_label = ctk.CTkLabel(dk_row, text="40", font=self.f_value,
+                                               text_color=ACCENT)
+        self.tiles_margin_label.grid(row=0, column=1, sticky="e")
+        ctk.CTkSlider(
+            p, from_=15, to=120, number_of_steps=105, variable=self.tiles_margin,
+            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
+            progress_color=ACCENT, fg_color=FIELD, height=16,
+            command=lambda v: self.tiles_margin_label.configure(text=f"{int(v)}"),
+        ).pack(fill="x", pady=(2, 8))
+
+        ctk.CTkButton(
+            p, text="◎  Preview lanes / hit line", font=self.f_sub,
+            fg_color=FIELD, hover_color="#343846", text_color=TEXT,
+            corner_radius=10, height=32, command=self._preview_tiles,
+        ).pack(fill="x", pady=(2, 0))
+
+    def _preview_tiles(self) -> None:
+        """Capture the target region and overlay the lane points + hit line so
+        the user can verify calibration before starting."""
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+        except Exception:
+            self._set_status("preview needs Pillow")
+            return
+        region = self._parse_region()
+        if region is None:
+            self._set_status("set the TARGET region first")
+            return
+        cap = ScreenCapture()
+        frame = cap.grab(region)
+        cap.close()
+        h, w = frame.shape[:2]
+        img = Image.fromarray(np.ascontiguousarray(frame[:, :, ::-1]))  # BGR->RGB
+        d = ImageDraw.Draw(img)
+        lanes = max(1, self.tiles_lanes.get())
+        hit_y = int(h * self.tiles_hit.get() / 100)
+        d.line([(0, hit_y), (w, hit_y)], fill=(255, 60, 60), width=3)
+        for i in range(lanes):
+            x = int((i + 0.5) * w / lanes)
+            x0 = int((i + 0.25) * w / lanes)
+            x1 = int((i + 0.75) * w / lanes)
+            d.rectangle([x0, hit_y - 6, x1, hit_y + 6], outline=(60, 200, 255), width=2)
+            d.ellipse([x - 5, hit_y - 5, x + 5, hit_y + 5], fill=(60, 200, 255))
+
+        win = tk.Toplevel(self.root)
+        win.title("Tiles preview")
+        win.attributes("-topmost", True)
+        # fit to a sane on-screen size
+        maxw, maxh = 360, 640
+        scale = min(maxw / w, maxh / h, 1.0)
+        disp = img.resize((max(1, int(w * scale)), max(1, int(h * scale))),
+                          Image.NEAREST)
+        tkimg = ImageTk.PhotoImage(disp)
+        lbl = tk.Label(win, image=tkimg, bd=0)
+        lbl.image = tkimg  # keep ref
+        lbl.pack()
+
     def _switch_panel(self, mode: str) -> None:
         for name, panel in self.panels.items():
             if name == mode:
@@ -323,27 +433,98 @@ class App:
         return f"#{r:02x}{g:02x}{b:02x}"
 
     # --- eyedropper --------------------------------------------------------
-    def _eyedropper(self) -> tuple | None:
-        """Single click samples a screen pixel.
+    def _make_loupe(self, ov, frame, to_px) -> dict | None:
+        """Borderless magnifier that follows the cursor over the overlay.
 
-        The whole screen is captured BEFORE the overlay is shown, then the
-        color is read from that frame — so the dimmed overlay can never
-        contaminate the sample (and there is no capture/repaint race).
+        Renders a zoomed crop of `frame` (the real, un-dimmed screen) around
+        the pointer, with a crosshair on the center pixel and a hex/coord
+        readout. `to_px(e)` maps a Tk event to (px, py) in the captured frame.
+        Returns a dict with the loupe window + an `update` motion handler, or
+        None if Pillow is unavailable (loupe is optional).
+        """
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+        except Exception:
+            return None
+
+        h, w = frame.shape[:2]
+        Z = 11           # zoom factor (screen px -> loupe px)
+        HALF = 8         # crop half-size; crop is (2*HALF+1) px square
+        side = 2 * HALF + 1
+        size = side * Z
+        rgb = np.ascontiguousarray(frame[:, :, ::-1])  # BGR -> RGB
+        sw, sh = ov.winfo_screenwidth(), ov.winfo_screenheight()
+
+        win = tk.Toplevel(ov)
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        try:
+            win.attributes("-disabled", True)  # Windows: never take focus
+        except tk.TclError:
+            pass
+        img_lbl = tk.Label(win, bd=0, highlightthickness=0, bg="black")
+        img_lbl.pack()
+        txt_lbl = tk.Label(win, bg="black", fg="white",
+                           font=("SF Mono", 11), anchor="center")
+        txt_lbl.pack(fill="x")
+
+        def update(e) -> None:
+            cx, cy = to_px(e)
+            x0, y0 = cx - HALF, cy - HALF
+            crop = rgb[max(y0, 0):min(y0 + side, h),
+                       max(x0, 0):min(x0 + side, w)]
+            tile = Image.new("RGB", (side, side), (0, 0, 0))
+            tile.paste(Image.fromarray(crop), (max(0, -x0), max(0, -y0)))
+            big = tile.resize((size, size), Image.NEAREST)
+            d = ImageDraw.Draw(big)
+            c = HALF * Z
+            d.rectangle([c, c, c + Z - 1, c + Z - 1], outline=(255, 0, 0), width=2)
+            tkimg = ImageTk.PhotoImage(big)
+            img_lbl.configure(image=tkimg)
+            img_lbl.image = tkimg  # keep ref
+            b, g, r = (int(v) for v in frame[cy, cx])
+            txt_lbl.configure(text=f"#{r:02x}{g:02x}{b:02x}  ({cx},{cy})")
+            # place near cursor, flip away from screen edges
+            sx = e.x_root + 24 if e.x_root + 24 + size <= sw else e.x_root - 24 - size
+            sy = e.y_root + 24 if e.y_root + 24 + size + 24 <= sh else e.y_root - 24 - size - 24
+            win.geometry(f"+{int(sx)}+{int(sy)}")
+
+        return {"win": win, "update": update}
+
+    def _eyedropper(self) -> tuple | None:
+        """Single click samples a screen pixel — across ALL monitors.
+
+        The whole virtual desktop is captured BEFORE the overlay is shown,
+        then the color is read from that frame — so the dimmed overlay can
+        never contaminate the sample (and there is no capture/repaint race).
 
         Returns (x_physical, y_physical, (b, g, r)) or None if cancelled.
+        The physical coords are relative to the virtual-desktop origin.
         """
-        # 1) capture the real screen first
+        # 1) capture the full virtual desktop first
         cap = ScreenCapture()
-        frame = cap.grab()
+        vmon = cap.virtual_monitor
+        frame = cap.grab(vmon)
         cap.close()
         h, w = frame.shape[:2]
+        rr = self.ratio
+        vleft, vtop = vmon["left"], vmon["top"]  # physical origin (may be < 0)
 
-        # 2) overlay just to pick a coordinate
+        # Map a Tk event (root coords, logical px) to a pixel in `frame`.
+        def to_px(e) -> tuple[int, int]:
+            px = min(max(int(e.x_root * rr - vleft), 0), w - 1)
+            py = min(max(int(e.y_root * rr - vtop), 0), h - 1)
+            return px, py
+
+        # 2) one borderless overlay spanning every monitor (logical geometry).
         picked: dict = {}
         ov = tk.Toplevel(self.root)
-        ov.attributes("-fullscreen", True)
+        ov.overrideredirect(True)
+        ov.geometry(
+            f"{int(w / rr)}x{int(h / rr)}+{int(vleft / rr)}+{int(vtop / rr)}"
+        )
         try:
-            ov.attributes("-alpha", 0.2)
+            ov.attributes("-alpha", 0.12)  # light tint, real screen stays visible
         except tk.TclError:
             pass
         ov.configure(bg="black", cursor="crosshair")
@@ -351,23 +532,40 @@ class App:
         canvas = tk.Canvas(ov, bg="black", highlightthickness=0)
         canvas.pack(fill="both", expand=True)
         canvas.create_text(
-            ov.winfo_screenwidth() // 2, 40,
-            text="Click to sample a pixel  •  Esc to cancel",
+            int(w / rr) // 2, 40,
+            text="Click to sample a pixel  •  Esc / right-click to cancel",
             fill="white", font=("SF Pro Text", 16),
         )
-        canvas.bind("<ButtonPress-1>", lambda e: (picked.update(x=e.x, y=e.y),
-                                                  ov.destroy()))
-        ov.bind("<Escape>", lambda _e: ov.destroy())
+
+        # 2b) live magnifier loupe drawn from the pre-captured (un-dimmed) frame.
+        loupe = self._make_loupe(ov, frame, to_px)
+
+        def _close() -> None:
+            if loupe is not None:
+                loupe["win"].destroy()
+            ov.destroy()
+
+        canvas.bind("<ButtonPress-1>",
+                    lambda e: (picked.update(p=to_px(e)), _close()))
+        if loupe is not None:
+            canvas.bind("<Motion>", loupe["update"])
+        # bind Escape on every widget in the overlay so a cancel works no
+        # matter which one holds focus (the loupe can steal it on map).
+        for wdg in (ov, canvas):
+            wdg.bind("<Escape>", lambda _e: _close())
+        ov.bind("<Button-3>", lambda _e: _close())  # right-click also cancels
         ov.grab_set()
+        ov.focus_force()  # reclaim keyboard focus so Escape reaches the overlay
         self.root.wait_window(ov)
 
-        if "x" not in picked:
+        if "p" not in picked:
             return None
-        # 3) read color from the pre-captured frame
-        px = min(max(int(picked["x"] * self.ratio), 0), w - 1)
-        py = min(max(int(picked["y"] * self.ratio), 0), h - 1)
+        # 3) read color from the frame (frame-relative index), but return the
+        #    coords in ABSOLUTE mss space (frame origin + virtual origin) so
+        #    pixel mode can grab that exact point later.
+        px, py = picked["p"]
         b, g, r = (int(c) for c in frame[py, px])
-        return px, py, (b, g, r)
+        return px + vleft, py + vtop, (b, g, r)
 
     def _pick_color(self) -> None:
         res = self._eyedropper()
@@ -487,6 +685,8 @@ class App:
         except ValueError:
             interval = 0.5
         mode = self.det_mode.get()
+        # tiles needs the real cursor (hold) -> always foreground
+        background = False if mode == "tiles" else self.background.get()
         return BotConfig(
             mode=mode,
             template_paths=self.template_paths if mode == "template" else [],
@@ -494,12 +694,15 @@ class App:
             interval=interval,
             region=self._parse_region(),
             click_mode=self.click_mode.get(),
-            background=self.background.get(),
+            background=background,
             color_target=self.color_bgr if mode == "color" else None,
             color_tolerance=self.color_tol.get(),
             pixel_point=self.pixel_point if mode == "pixel" else None,
             pixel_color=self.pixel_bgr if mode == "pixel" else None,
             pixel_tolerance=self.pixel_tol.get(),
+            tiles_lanes=self.tiles_lanes.get(),
+            tiles_hit=self.tiles_hit.get() / 100.0,
+            tiles_margin=self.tiles_margin.get(),
         )
 
     def _validate(self, cfg: BotConfig) -> str | None:
@@ -509,6 +712,8 @@ class App:
             return "no color picked"
         if cfg.mode == "pixel" and (cfg.pixel_point is None or cfg.pixel_color is None):
             return "no pixel picked"
+        if cfg.mode == "tiles" and cfg.region is None:
+            return "set the game region (TARGET) first"
         return None
 
     def _running(self) -> bool:

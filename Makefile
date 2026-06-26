@@ -1,11 +1,23 @@
 # autobot — dev tasks
-# Usage: make <target>   (Windows: run via Git Bash/WSL, or see README)
+# Usage: make <target>
+#   macOS/Linux: GNU make (preinstalled / `brew install make`)
+#   Windows:     run from Git Bash or WSL (`choco install make` for the binary)
+#
+# Only the venv layout differs by OS (Scripts\ vs bin/); shell commands assume
+# a Unix-ish shell (bash), which Git Bash/WSL both provide on Windows.
 
-PYTHON ?= python3
-VENV   := .venv
-BIN    := $(VENV)/bin
-PY     := $(BIN)/python
-PIP    := $(BIN)/pip
+VENV := .venv
+
+ifeq ($(OS),Windows_NT)
+  PYTHON ?= python
+  BIN    := $(VENV)/Scripts
+else
+  PYTHON ?= python3
+  BIN    := $(VENV)/bin
+endif
+
+PY  := $(BIN)/python
+PIP := $(PY) -m pip
 
 .DEFAULT_GOAL := help
 

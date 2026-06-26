@@ -63,12 +63,21 @@ Administrator, run Python as Administrator too, otherwise clicks won't reach it.
   **🎯 Pick pixel** (eyedropper — one click samples both the point and its
   color), set **Tolerance** (per-channel). Fastest/most precise. Good for a
   button that changes color when ready, a cooldown/health bar, etc.
+- **tiles** — *Magic Tiles 3 / piano-tiles* autoplay. Watches **N lanes** at a
+  **hit line** and presses a lane while a dark tile covers it: a short tile →
+  quick **tap**, a long tile → **hold** until it clears. Set **TARGET** to the
+  play area, then **Lanes** (4), **Hit line** (% of height where you tap), and
+  **Contrast** (how much darker a tile is than the lane background — relative,
+  so it works on any skin: black, blue, etc.). Press **◎ Preview lanes** to
+  check the lane points + hit line before starting. Foreground only (it needs
+  the real cursor to hold), single pointer = one tile at a time.
 
 | mode | knows position? | scans | best for |
 |------|-----------------|-------|----------|
 | template | no | whole region | fixed-look icons/buttons |
 | color | no | whole region | bright items at random spots |
 | pixel | yes (x,y) | one point | a point that changes color |
+| tiles | yes (lanes) | hit-line strip | Magic Tiles 3 / piano tiles (tap + hold) |
 
 ### Target — games that aren't fullscreen
 You don't have to scan the whole screen. Three options:

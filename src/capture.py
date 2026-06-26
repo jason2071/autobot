@@ -21,6 +21,11 @@ class ScreenCapture:
         # monitors[0] is the virtual "all monitors" box; [1] is the primary.
         return self._sct.monitors[1]
 
+    @property
+    def virtual_monitor(self) -> dict:
+        # The bounding box spanning every monitor (left/top may be negative).
+        return self._sct.monitors[0]
+
     def grab(self, region: dict | None = None) -> np.ndarray:
         """Grab a region and return a BGR image.
 
