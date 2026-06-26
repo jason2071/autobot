@@ -72,6 +72,17 @@ pip install -r requirements.txt
 อัตโนมัติใน `clicker.py` (logical_width / physical_width). พิกัด Region ที่กรอกใช้
 **physical px**.
 
+## Makefile (mac/Linux, หรือ Git Bash/WSL บน Windows)
+
+```bash
+make install   # สร้าง venv + ลง deps
+make run        # เปิด GUI
+make test       # smoke test
+make detect IMG=shot.png TPL=btn.png   # ทดสอบ template match
+make clean      # ลบ venv + __pycache__
+make help       # ดูคำสั่งทั้งหมด
+```
+
 ## ทดสอบ detector (ไม่ต้องคลิกจริง)
 
 ```bash
