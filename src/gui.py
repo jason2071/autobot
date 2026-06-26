@@ -41,7 +41,7 @@ class App:
         self.bot: BotEngine | None = None
         self._pending_id: str | None = None  # scheduled start-delay countdown
         self.target_hwnd: int | None = None  # set when a window is the target
-        self.tiles_note_bgr: tuple[int, int, int] | None = None  # slide/note color
+        self.tiles_note_bgrs: list[tuple[int, int, int]] = []  # slide/note colors
         self.windows: list[window_picker.Window] = []
 
         cap = ScreenCapture()
@@ -270,7 +270,7 @@ class App:
         nc_row.pack(fill="x", pady=(10, 0))
         nc_row.columnconfigure(0, weight=1)
         ctk.CTkButton(
-            nc_row, text="🎨  Pick slide / note color", font=self.f_sub,
+            nc_row, text="🎨  Add slide / note color", font=self.f_sub,
             fg_color=FIELD, hover_color="#343846", text_color=TEXT,
             corner_radius=10, height=32, command=self._pick_note_color,
         ).grid(row=0, column=0, sticky="ew")
@@ -284,7 +284,7 @@ class App:
             width=32, height=32, command=self._clear_note_color,
         ).grid(row=0, column=2, padx=(4, 0))
         self.tiles_note_label = self._muted(
-            right, "optional: bright notes / diagonal slides (off = dark tiles only)")
+            right, "optional: bright notes / slides — pick one or more (off = dark only)")
         self.tiles_note_label.pack(anchor="w", pady=(3, 6))
 
         # ── preview button ────────────────────────────────────────────────
@@ -320,16 +320,18 @@ class App:
         if not res:
             return
         _x, _y, bgr = res
-        self.tiles_note_bgr = bgr
+        self.tiles_note_bgrs.append(bgr)  # add — pick several (cyan, pink, ...)
         self.tiles_note_swatch.configure(fg_color=self._bgr_hex(bgr))
+        n = len(self.tiles_note_bgrs)
+        hexes = " ".join(self._bgr_hex(c) for c in self.tiles_note_bgrs)
         self.tiles_note_label.configure(
-            text=f"✓ slide/note color {self._bgr_hex(bgr)}  (✕ to clear)")
+            text=f"✓ {n} note color{'s' if n > 1 else ''}: {hexes}  (✕ clears all)")
 
     def _clear_note_color(self) -> None:
-        self.tiles_note_bgr = None
+        self.tiles_note_bgrs = []
         self.tiles_note_swatch.configure(fg_color=FIELD)
         self.tiles_note_label.configure(
-            text="optional: bright notes / diagonal slides (off = dark tiles only)")
+            text="optional: bright notes / slides — pick one or more (off = dark only)")
 
     def _on_tiles_input(self, choice: str) -> None:
         """Show the key fields only for the keyboard backend.
@@ -643,7 +645,7 @@ class App:
             tiles_keys=self._parse_keys(),
             tiles_start_key=self.tiles_start_key.get().strip().lower(),
             tiles_hold_extra=self.tiles_hold_extra.get(),
-            tiles_note_color=self.tiles_note_bgr,
+            tiles_note_colors=list(self.tiles_note_bgrs),
             tiles_helpers=self._helper_templates(),
             target_hwnd=self.target_hwnd,
             window_method="bitblt" if self.tiles_fast.get() else "printwindow",

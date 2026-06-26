@@ -31,9 +31,12 @@ class BotConfig:
                                    # shorter than the note; 0 = no change)
     # opt-in: also flag a lane active when it carries this note colour (BGR) —
     # detects bright/coloured notes and slides (the lit lane shifts across the
-    # board, and the per-lane state machine follows it). None = darkness only.
-    tiles_note_color: tuple[int, int, int] | None = None
-    tiles_note_tol: int = 18       # hue tolerance (degrees) for the note colour
+    # board, and the per-lane state machine follows it). A lane is active when it
+    # is dark OR matches ANY of these colours — so a skin with several note
+    # colours (e.g. cyan notes + pink slides) is fully covered. Empty = darkness
+    # only (no change for classic black-tile skins).
+    tiles_note_colors: list[tuple[int, int, int]] = field(default_factory=list)
+    tiles_note_tol: int = 18       # hue tolerance (degrees) for the note colours
     mode: str = "tiles"  # only mode supported
     # input backend: "mouse" (single finger) or "keyboard" (per-lane keys, so
     # multiple long tiles / chords can be held at once via LDPlayer key mapping)
@@ -388,9 +391,8 @@ class BotEngine:
             frame = src_grab(strip)
             means = [float(frame[:, x0:x1].mean()) for x0, x1 in bands]
             active = tiles_dark_lanes(means, cfg.tiles_margin)
-            if cfg.tiles_note_color is not None:  # OR in coloured notes / slides
-                col = tiles_color_lanes(frame, bands, cfg.tiles_note_color,
-                                        cfg.tiles_note_tol)
+            for bgr in cfg.tiles_note_colors:  # OR in coloured notes / slides
+                col = tiles_color_lanes(frame, bands, bgr, cfg.tiles_note_tol)
                 active = [a or c for a, c in zip(active, col)]
             return active
 
