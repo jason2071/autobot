@@ -107,7 +107,7 @@ class App:
 
     # --- layout ---------------------------------------------------------------
     def _build(self) -> None:
-        self.root.geometry("720x480")
+        self.root.geometry("720x420")
 
         outer = ctk.CTkFrame(self.root, fg_color="transparent")
         outer.pack(padx=16, pady=14, fill="both", expand=True)
@@ -147,12 +147,14 @@ class App:
         self.panels: dict[str, ctk.CTkFrame] = {}
         self._build_tiles_panel(left, right)
 
-    # --- detection panel (two columns: left = target+input, right = sliders+color) ---
+    # --- detection panel (two columns: left = target+input+preview, right = sliders+color+start) ---
     def _build_tiles_panel(self, left, right) -> None:
         # panels["tiles"] tracks the primary column; attribute must exist.
         self.panels["tiles"] = left
 
-        # ══════════════ LEFT COLUMN — TARGET + INPUT ══════════════════════
+        # ══════════════ LEFT COLUMN — TARGET + INPUT + PREVIEW ════════════
+        # Preview is the natural bottom-anchor for the setup column: verify
+        # your target region / lane geometry before moving to tuning on the right.
 
         # ── TARGET ────────────────────────────────────────────────────────
         target_hdr = ctk.CTkFrame(left, fg_color="transparent")
@@ -173,7 +175,7 @@ class App:
             button_hover_color="#343846", corner_radius=10, height=34,
             command=self._on_window_pick,
         )
-        self.window_menu.pack(fill="x", pady=(4, 4))
+        self.window_menu.pack(fill="x", pady=(4, 2))
 
         self.region = tk.StringVar(value="")
         ctk.CTkEntry(
@@ -181,7 +183,7 @@ class App:
             placeholder_text="top, left, width, height",
             fg_color=FIELD, border_width=0, corner_radius=10,
             height=34, justify="center",
-        ).pack(fill="x", pady=(0, 10))
+        ).pack(fill="x", pady=(2, 12))
 
         self._refresh_windows()
 
@@ -209,7 +211,15 @@ class App:
                   "work elsewhere. keep LDPlayer visible / uncovered.",
         ).pack(anchor="w", pady=(5, 0))
 
-        # ══════════════ RIGHT COLUMN — SLIDERS + COLOR + PREVIEW ══════════
+        # ── preview — verify region + lane geometry before tuning ─────────
+        self._tiles_preview_btn = ctk.CTkButton(
+            left, text="◎  Preview lanes / hit line", font=self.f_sub,
+            fg_color=FIELD, hover_color="#343846", text_color=TEXT,
+            corner_radius=10, height=32, command=self._preview_tiles,
+        )
+        self._tiles_preview_btn.pack(fill="x", pady=(12, 0))
+
+        # ══════════════ RIGHT COLUMN — SLIDERS + COLOR + START ════════════
 
         # ── HIT LINE % — calibration-critical ─────────────────────────────
         self.tiles_hit = tk.IntVar(value=80)
@@ -255,18 +265,9 @@ class App:
         ).grid(row=0, column=2, padx=(4, 0))
         self.tiles_note_label = self._muted(
             right, "optional: bright notes / slides — pick one or more (off = dark only)")
-        self.tiles_note_label.pack(anchor="w", pady=(3, 6))
+        self.tiles_note_label.pack(anchor="w", pady=(3, 0))
 
-        # ── preview button ────────────────────────────────────────────────
-        # _tiles_preview_btn attribute kept for external reference consistency.
-        self._tiles_preview_btn = ctk.CTkButton(
-            right, text="◎  Preview lanes / hit line", font=self.f_sub,
-            fg_color=FIELD, hover_color="#343846", text_color=TEXT,
-            corner_radius=10, height=32, command=self._preview_tiles,
-        )
-        self._tiles_preview_btn.pack(fill="x", pady=(4, 0))
-
-        # ── Start / Stop + status — bottom of the right column ────────────
+        # ── Start / Stop + status ─────────────────────────────────────────
         self.toggle_btn = ctk.CTkButton(
             right, text="▶   Start", font=self.f_btn, fg_color=GREEN,
             hover_color=GREEN_HOVER, text_color="#ffffff", corner_radius=12,
@@ -345,7 +346,7 @@ class App:
         win.title("Tiles preview")
         win.attributes("-topmost", True)
         # fit to a sane on-screen size
-        maxw, maxh = 360, 640
+        maxw, maxh = 460, 860
         scale = min(maxw / w, maxh / h, 1.0)
         disp = img.resize((max(1, int(w * scale)), max(1, int(h * scale))),
                           Image.NEAREST)
@@ -532,53 +533,6 @@ class App:
         else:
             self.target_hwnd = None
             self._set_region_logical(win.bounds)
-
-    def _drag_region(self) -> None:
-        result: dict = {}
-        ov = tk.Toplevel(self.root)
-        ov.attributes("-fullscreen", True)
-        try:
-            ov.attributes("-alpha", 0.25)
-        except tk.TclError:
-            pass
-        ov.configure(bg="black", cursor="crosshair")
-        ov.attributes("-topmost", True)
-        canvas = tk.Canvas(ov, bg="black", highlightthickness=0)
-        canvas.pack(fill="both", expand=True)
-        canvas.create_text(
-            ov.winfo_screenwidth() // 2, 40,
-            text="Drag to select an area  •  Esc to cancel",
-            fill="white", font=("SF Pro Text", 16),
-        )
-        s = {"x": 0, "y": 0, "rect": None}
-
-        def press(e):
-            s["x"], s["y"] = e.x, e.y
-            s["rect"] = canvas.create_rectangle(e.x, e.y, e.x, e.y,
-                                                outline=GREEN, width=2)
-
-        def drag(e):
-            if s["rect"]:
-                canvas.coords(s["rect"], s["x"], s["y"], e.x, e.y)
-
-        def release(e):
-            left, top = min(s["x"], e.x), min(s["y"], e.y)
-            w, h = abs(e.x - s["x"]), abs(e.y - s["y"])
-            if w > 5 and h > 5:
-                result.update(top=top, left=left, width=w, height=h)
-            ov.destroy()
-
-        canvas.bind("<ButtonPress-1>", press)
-        canvas.bind("<B1-Motion>", drag)
-        canvas.bind("<ButtonRelease-1>", release)
-        ov.bind("<Escape>", lambda _e: ov.destroy())
-        ov.grab_set()
-        self.root.wait_window(ov)
-
-        if result:
-            self.target_hwnd = None  # drag selects a screen region, not a window
-            self.window_choice.set("Full screen")
-            self._set_region_logical(result)
 
     # --- actions -----------------------------------------------------------
     def _parse_region(self) -> dict | None:

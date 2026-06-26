@@ -302,12 +302,13 @@ class BotEngine:
         strip = {"top": hit_y - cfg.tiles_lead - sh // 2, "left": mon["left"],
                  "width": mon["width"], "height": sh}
 
-        # lane geometry (PHYSICAL screen coords for touch): even split until the
-        # real board is confidently detected, then lock onto it — so starting on
-        # a menu / start screen doesn't lock in a wrong layout.
-        typ = int(oy + hit_y)                                # hit-line y
+        # lane geometry in WINDOW-LOCAL coords; (ox, oy) is the window origin and
+        # is refreshed every loop, so moving LDPlayer mid-play keeps the touches
+        # on the board (capture follows the window too). Even split until the real
+        # board is confidently detected, then lock onto it.
+        typ = int(hit_y)                                     # hit-line y (local)
         centers, bands = tiles_lane_geometry(src_grab(mon), lanes)
-        tx = [int(ox + mon["left"] + cx) for cx in centers]  # lane x
+        tx = [int(mon["left"] + cx) for cx in centers]       # lane x (local)
         locked = tiles_board_edges(src_grab(mon)) is not None
 
         def _recalibrate(board) -> None:
@@ -315,7 +316,7 @@ class BotEngine:
             if tiles_board_edges(board) is None:
                 return
             centers, bands = tiles_lane_geometry(board, lanes)
-            tx = [int(ox + mon["left"] + cx) for cx in centers]
+            tx = [int(mon["left"] + cx) for cx in centers]
             locked = True
 
         # --- per-lane actuator: background multi-touch (one finger per lane) ---
@@ -326,7 +327,7 @@ class BotEngine:
         held_since = [0.0] * lanes
 
         def press(i):
-            touch.down(i, tx[i], typ)
+            touch.down(i, ox + tx[i], oy + typ)
 
         def release(i):
             touch.up(i)
@@ -403,6 +404,8 @@ class BotEngine:
         try:
             while not self._stop.is_set():
                 now = time.monotonic()
+                if win is not None:       # follow the window if it's moved
+                    ox, oy = win.origin()
 
                 if now - last_helper >= cfg.tiles_helper_interval:
                     last_helper = now
