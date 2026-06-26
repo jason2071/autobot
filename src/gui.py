@@ -324,10 +324,21 @@ class App:
 
     # --- eyedropper --------------------------------------------------------
     def _eyedropper(self) -> tuple | None:
-        """Fullscreen overlay; single click samples a screen pixel.
+        """Single click samples a screen pixel.
+
+        The whole screen is captured BEFORE the overlay is shown, then the
+        color is read from that frame — so the dimmed overlay can never
+        contaminate the sample (and there is no capture/repaint race).
 
         Returns (x_physical, y_physical, (b, g, r)) or None if cancelled.
         """
+        # 1) capture the real screen first
+        cap = ScreenCapture()
+        frame = cap.grab()
+        cap.close()
+        h, w = frame.shape[:2]
+
+        # 2) overlay just to pick a coordinate
         picked: dict = {}
         ov = tk.Toplevel(self.root)
         ov.attributes("-fullscreen", True)
@@ -352,15 +363,10 @@ class App:
 
         if "x" not in picked:
             return None
-        # overlay is gone now; let the screen repaint before grabbing
-        self.root.update()
-        self.root.after(60)
-        px = int(picked["x"] * self.ratio)
-        py = int(picked["y"] * self.ratio)
-        cap = ScreenCapture()
-        frame = cap.grab({"top": py, "left": px, "width": 1, "height": 1})
-        cap.close()
-        b, g, r = (int(c) for c in frame[0, 0])
+        # 3) read color from the pre-captured frame
+        px = min(max(int(picked["x"] * self.ratio), 0), w - 1)
+        py = min(max(int(picked["y"] * self.ratio), 0), h - 1)
+        b, g, r = (int(c) for c in frame[py, px])
         return px, py, (b, g, r)
 
     def _pick_color(self) -> None:
