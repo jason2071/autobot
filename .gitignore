@@ -41,6 +41,7 @@ templates/*.png
 templates/*.jpg
 templates/*.jpeg
 templates/*.bmp
+templates/*.mp4
 !templates/.gitkeep
 
 # OS
