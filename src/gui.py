@@ -107,7 +107,7 @@ class App:
 
     # --- layout ---------------------------------------------------------------
     def _build(self) -> None:
-        self.root.geometry("420x740")
+        self.root.geometry("420x560")
 
         outer = ctk.CTkFrame(self.root, fg_color="transparent")
         outer.pack(padx=14, pady=14, fill="both", expand=True)
@@ -139,26 +139,17 @@ class App:
         self._build_tiles_panel(scroll)
         self.panels["tiles"].pack(fill="x")
 
-        # thin divider between detection settings and session settings
-        ctk.CTkFrame(scroll, fg_color=FIELD, height=1,
-                     corner_radius=0).pack(fill="x", pady=(10, 0))
-
-        # ── START DELAY — compact inline row ──────────────────────────────
-        delay_row = ctk.CTkFrame(scroll, fg_color="transparent")
-        delay_row.pack(fill="x", pady=(8, 0))
-        delay_row.columnconfigure(0, weight=1)
-        ctk.CTkLabel(delay_row, text="START DELAY (s)", font=self.f_section,
-                     text_color=MUTED).grid(row=0, column=0, sticky="w")
-        self.start_delay = tk.StringVar(value="3")
-        ctk.CTkEntry(
-            delay_row, textvariable=self.start_delay, font=self.f_label,
-            fg_color=FIELD, border_width=0, corner_radius=10,
-            height=32, width=72, justify="center",
-        ).grid(row=0, column=1, sticky="e")
-
         # ── TARGET ────────────────────────────────────────────────────────
-        ctk.CTkLabel(scroll, text="TARGET", font=self.f_section,
-                     text_color=MUTED).pack(anchor="w", pady=(10, 0))
+        target_hdr = ctk.CTkFrame(scroll, fg_color="transparent")
+        target_hdr.pack(fill="x", pady=(10, 0))
+        target_hdr.columnconfigure(0, weight=1)
+        ctk.CTkLabel(target_hdr, text="TARGET", font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
+        ctk.CTkButton(
+            target_hdr, text="↺  Refresh", font=self.f_sub, fg_color=FIELD,
+            hover_color="#343846", text_color=TEXT, corner_radius=8,
+            height=24, width=80, command=self._refresh_windows,
+        ).grid(row=0, column=1, sticky="e")
         self.window_choice = tk.StringVar(value="Full screen")
         self.window_menu = ctk.CTkOptionMenu(
             scroll, variable=self.window_choice, values=["Full screen"],
@@ -168,27 +159,13 @@ class App:
         )
         self.window_menu.pack(fill="x", pady=(4, 4))
 
-        tbtns = ctk.CTkFrame(scroll, fg_color="transparent")
-        tbtns.pack(fill="x")
-        tbtns.columnconfigure((0, 1), weight=1, uniform="t")
-        ctk.CTkButton(
-            tbtns, text="🔄  Refresh", font=self.f_sub, fg_color=FIELD,
-            hover_color="#343846", text_color=TEXT, corner_radius=10, height=30,
-            command=self._refresh_windows,
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 5))
-        ctk.CTkButton(
-            tbtns, text="◰  Drag area", font=self.f_sub, fg_color=FIELD,
-            hover_color="#343846", text_color=TEXT, corner_radius=10, height=30,
-            command=self._drag_region,
-        ).grid(row=0, column=1, sticky="ew", padx=(5, 0))
-
         self.region = tk.StringVar(value="")
         ctk.CTkEntry(
             scroll, textvariable=self.region, font=self.f_value,
             placeholder_text="top, left, width, height",
             fg_color=FIELD, border_width=0, corner_radius=10,
             height=34, justify="center",
-        ).pack(fill="x", pady=(6, 2))
+        ).pack(fill="x", pady=(4, 2))
         self._refresh_windows()
 
         # ── Start / Stop (outside scroll — always visible) ────────────────
@@ -214,38 +191,21 @@ class App:
         p = ctk.CTkFrame(host, fg_color="transparent")
         self.panels["tiles"] = p
 
-        # blurb
-        self._muted(
-            p, "Set TARGET to the play area (4 lanes).\n"
-               "Foreground: real cursor for tap & hold.",
-        ).pack(anchor="w", pady=(0, 8))
+        # ── HIT LINE % — calibration-critical, full width ─────────────────
+        self.tiles_hit = tk.IntVar(value=80)
+        self._slider_group(p, "HIT LINE %", self.tiles_hit,
+                           50, 98, 48, "tiles_hit_label", 80)
 
-        # ── 2 × 2 slider grid ─────────────────────────────────────────────
-        # Row 0: LANES | HIT LINE %
-        # Row 1: CONTRAST | HOLD EXTRA
+        # ── CONTRAST | HOLD EXTRA — secondary tuning, 2-col ──────────────
         sg = ctk.CTkFrame(p, fg_color="transparent")
-        sg.pack(fill="x", pady=(0, 6))
+        sg.pack(fill="x", pady=(8, 0))
         sg.columnconfigure((0, 1), weight=1, uniform="sl")
 
-        c_lanes = ctk.CTkFrame(sg, fg_color="transparent")
-        c_lanes.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-
-        c_hit = ctk.CTkFrame(sg, fg_color="transparent")
-        c_hit.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
-
         c_ctr = ctk.CTkFrame(sg, fg_color="transparent")
-        c_ctr.grid(row=1, column=0, sticky="nsew", padx=(0, 5), pady=(8, 0))
+        c_ctr.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
 
         c_he = ctk.CTkFrame(sg, fg_color="transparent")
-        c_he.grid(row=1, column=1, sticky="nsew", padx=(5, 0), pady=(8, 0))
-
-        self.tiles_lanes = tk.IntVar(value=4)
-        self._slider_group(c_lanes, "LANES", self.tiles_lanes,
-                           1, 8, 7, "tiles_lanes_label", 4)
-
-        self.tiles_hit = tk.IntVar(value=80)
-        self._slider_group(c_hit, "HIT LINE %", self.tiles_hit,
-                           50, 98, 48, "tiles_hit_label", 80)
+        c_he.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
 
         self.tiles_margin = tk.IntVar(value=40)
         self._slider_group(c_ctr, "CONTRAST", self.tiles_margin,
@@ -257,7 +217,7 @@ class App:
 
         # ── slide / note color ────────────────────────────────────────────
         nc_row = ctk.CTkFrame(p, fg_color="transparent")
-        nc_row.pack(fill="x", pady=(4, 0))
+        nc_row.pack(fill="x", pady=(8, 0))
         nc_row.columnconfigure(0, weight=1)
         ctk.CTkButton(
             nc_row, text="🎨  Pick slide / note color", font=self.f_sub,
@@ -304,10 +264,6 @@ class App:
             selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
             unselected_hover_color="#343846",
         ).pack(fill="x", pady=(5, 0))
-
-        self._muted(
-            p, "fast = low-latency (keep game on top); slow = overlap-proof"
-        ).pack(anchor="w", pady=(2, 0))
 
         # keyboard-only controls — hidden until keyboard mode is selected.
         # pack(before=self._tiles_preview_btn) inserts this frame just above
@@ -398,7 +354,7 @@ class App:
         h, w = frame.shape[:2]
         img = Image.fromarray(np.ascontiguousarray(frame[:, :, ::-1]))  # BGR->RGB
         d = ImageDraw.Draw(img)
-        lanes = max(1, self.tiles_lanes.get())
+        lanes = 4
         hit_y = int(h * self.tiles_hit.get() / 100)
         # same auto lane detection the bot uses, so the preview is truthful
         from .bot import tiles_lane_geometry, tiles_board_edges
@@ -666,7 +622,6 @@ class App:
     def _build_config(self) -> BotConfig:
         return BotConfig(
             region=self._parse_region(),
-            tiles_lanes=self.tiles_lanes.get(),
             tiles_hit=self.tiles_hit.get() / 100.0,
             tiles_margin=self.tiles_margin.get(),
             tiles_input=self.tiles_input.get(),
@@ -702,8 +657,8 @@ class App:
     def _validate(self, cfg: BotConfig) -> str | None:
         if cfg.region is None:
             return "set the game region (TARGET) first"
-        if cfg.tiles_input == "keyboard" and len(cfg.tiles_keys) < cfg.tiles_lanes:
-            return f"need {cfg.tiles_lanes} lane keys (got {len(cfg.tiles_keys)})"
+        if cfg.tiles_input == "keyboard" and len(cfg.tiles_keys) < 4:
+            return f"need 4 lane keys (got {len(cfg.tiles_keys)})"
         return None
 
     def _running(self) -> bool:
@@ -727,11 +682,7 @@ class App:
             self._set_status(f"error: {err}")
             return
 
-        try:
-            delay = max(int(self.start_delay.get()), 0)
-        except ValueError:
-            delay = 0
-        self._countdown(delay, config)
+        self._countdown(3, config)
 
     def _cancel_pending(self) -> None:
         if self._pending_id is not None:
