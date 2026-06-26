@@ -45,7 +45,7 @@ class BotConfig:
     # in keyboard mode, press this key to start a song (map it to START in
     # LDPlayer) instead of mouse-clicking — keeps the cursor off the game. Empty
     # = click as usual.
-    tiles_start_key: str = "f"
+    tiles_start_key: str = "g"
     # when set, capture this window directly instead of a screen region.
     # region is window-local. window_method: "bitblt" (fast) keeps the window
     # visible; "printwindow" (slower) is immune to other apps overlapping it.
