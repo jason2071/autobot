@@ -8,26 +8,13 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .capture import ScreenCapture
-from .clicker import Clicker
 from . import detector
 
 
 @dataclass
 class BotConfig:
-    template_paths: list[str] = field(default_factory=list)
-    threshold: float = 0.8
-    interval: float = 0.5  # seconds between scans
-    region: dict | None = None  # {"top","left","width","height"} physical px, or None
-    click_mode: str = "first"  # "first" or "all"
-    mode: str = "template"  # "template" | "color" | "pixel" | "tiles"
-    # color mode (scan a region for a colored blob)
-    color_target: tuple[int, int, int] | None = None  # BGR
-    color_tolerance: int = 25
-    # pixel mode (watch one point; click when its color matches)
-    pixel_point: tuple[int, int] | None = None  # physical screen px (x, y)
-    pixel_color: tuple[int, int, int] | None = None  # BGR
-    pixel_tolerance: int = 20  # per-channel BGR
     # tiles mode (Magic Tiles 3 style: N lanes, dark tile reaches hit line)
+    region: dict | None = None  # {"top","left","width","height"}; window-local
     tiles_lanes: int = 4
     tiles_hit: float = 0.80      # hit line as a fraction of region height
     # a lane has a tile when its brightness is this far BELOW the lane median
@@ -47,6 +34,7 @@ class BotConfig:
     # board, and the per-lane state machine follows it). None = darkness only.
     tiles_note_color: tuple[int, int, int] | None = None
     tiles_note_tol: int = 18       # hue tolerance (degrees) for the note colour
+    mode: str = "tiles"  # only mode supported
     # input backend: "mouse" (single finger) or "keyboard" (per-lane keys, so
     # multiple long tiles / chords can be held at once via LDPlayer key mapping)
     tiles_input: str = "mouse"
@@ -65,9 +53,6 @@ class BotConfig:
     tiles_helpers: list[str] = field(default_factory=list)
     tiles_helper_threshold: float = 0.8
     tiles_helper_interval: float = 0.3  # how often to scan for helper buttons
-    min_click_interval: float = 0.3
-    jitter: int = 0
-    background: bool = False  # click without moving the real cursor (macOS)
 
 
 StatusCallback = Callable[[str], None]
@@ -262,80 +247,19 @@ class BotEngine:
     # --- core loop ---------------------------------------------------------
     def _validate(self) -> str | None:
         """Return an error message if the config can't run, else None."""
-        cfg = self.config
-        if cfg.mode == "color" and cfg.color_target is None:
-            return "no color picked"
-        if cfg.mode == "pixel" and (cfg.pixel_point is None or cfg.pixel_color is None):
-            return "no pixel picked"
-        if cfg.mode == "template" and not cfg.template_paths:
-            return "no templates set"
-        if cfg.mode == "tiles" and cfg.region is None:
+        if self.config.region is None:
             return "set the game region first (TARGET)"
         return None
 
     def _run(self) -> None:
-        cfg = self.config
         err = self._validate()
         if err:
             self.on_status(f"error: {err}")
             return
-
-        templates: list = []
-        if cfg.mode == "template":
-            try:
-                templates = [detector.load_template(p) for p in cfg.template_paths]
-            except ValueError as e:
-                self.on_status(f"error: {e}")
-                return
-
         # mss must be created inside this thread.
         cap = ScreenCapture()
-
-        if cfg.mode == "tiles":
-            try:
-                self._run_tiles(cap)
-            except Exception as e:  # surface failsafe / runtime errors to GUI
-                self.on_status(f"stopped: {e}")
-            finally:
-                cap.close()
-                self.on_status("stopped")
-            return
-
-        mon = cfg.region if cfg.region else cap.primary_monitor
-        region_offset = (mon["left"], mon["top"])
         try:
-            clicker = Clicker(
-                capture_width=cap.primary_monitor["width"],
-                min_interval=cfg.min_click_interval,
-                jitter=cfg.jitter,
-                background=cfg.background,
-            )
-        except RuntimeError as e:
-            self.on_status(f"error: {e}")
-            cap.close()
-            return
-        self.on_status("running")
-
-        try:
-            while not self._stop.is_set():
-                if cfg.mode == "pixel":
-                    matches, offset = self._scan_pixel(cap)
-                else:
-                    frame = cap.grab(cfg.region)
-                    matches = self._detect(frame, templates)
-                    offset = region_offset
-
-                if matches:
-                    targets = matches if cfg.click_mode == "all" else matches[:1]
-                    clicked = 0
-                    for x, y, _score in targets:
-                        if clicker.click_at(x, y, region_offset=offset):
-                            clicked += 1
-                    self.on_status(f"clicked {clicked} of {len(matches)} match(es)")
-                else:
-                    self.on_status("idle — no match")
-
-                self._stop.wait(cfg.interval)
+            self._run_tiles(cap)
         except Exception as e:  # surface failsafe / runtime errors to GUI
             self.on_status(f"stopped: {e}")
         finally:
@@ -560,26 +484,3 @@ class BotEngine:
                 listener.stop()
             if win is not None:
                 win.close()
-
-    def _scan_pixel(self, cap) -> tuple[list[detector.Match], tuple[int, int]]:
-        """Grab a 1x1 region at pixel_point and test its color."""
-        cfg = self.config
-        px, py = cfg.pixel_point
-        frame = cap.grab({"top": py, "left": px, "width": 1, "height": 1})
-        if detector.check_pixel(frame, 0, 0, cfg.pixel_color, cfg.pixel_tolerance):
-            return [(0, 0, 1.0)], (px, py)
-        return [], (px, py)
-
-    def _detect(self, frame, templates) -> list[detector.Match]:
-        cfg = self.config
-        matches: list[detector.Match] = []
-        if cfg.mode == "template":
-            for tpl in templates:
-                matches.extend(detector.match_template(frame, tpl, cfg.threshold))
-        elif cfg.mode == "color":
-            matches.extend(
-                detector.find_color(frame, cfg.color_target, cfg.color_tolerance)
-            )
-        # highest score first
-        matches.sort(key=lambda m: m[2], reverse=True)
-        return matches

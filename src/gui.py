@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import time
 import tkinter as tk
-from tkinter import filedialog
 
 import customtkinter as ctk
 import numpy as np
@@ -39,15 +38,11 @@ class App:
         self.root.configure(fg_color=BG)
         self.root.resizable(False, False)
 
-        self.template_paths: list[str] = []
         self.bot: BotEngine | None = None
         self._pending_id: str | None = None  # scheduled start-delay countdown
         self.target_hwnd: int | None = None  # set when a window is the target
         self.tiles_note_bgr: tuple[int, int, int] | None = None  # slide/note color
         self.windows: list[window_picker.Window] = []
-        self.color_bgr: tuple[int, int, int] | None = None
-        self.pixel_point: tuple[int, int] | None = None  # physical px
-        self.pixel_bgr: tuple[int, int, int] | None = None
 
         cap = ScreenCapture()
         phys_w = cap.primary_monitor["width"]
@@ -97,7 +92,7 @@ class App:
             anchor="w"
         )
         ctk.CTkLabel(
-            htext, text="template / color auto-clicker",
+            htext, text="Magic Tiles 3 autoplay",
             font=self.f_sub, text_color=MUTED,
         ).pack(anchor="w")
 
@@ -106,55 +101,10 @@ class App:
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.pack(fill="x", padx=18, pady=16)
 
-        # detection mode
-        ctk.CTkLabel(inner, text="DETECTION", font=self.f_section,
-                     text_color=MUTED).pack(anchor="w")
-        self.det_mode = tk.StringVar(value="template")
-        ctk.CTkSegmentedButton(
-            inner, values=["template", "color", "pixel", "tiles"],
-            variable=self.det_mode,
-            command=self._switch_panel, font=self.f_label, height=36, corner_radius=10,
-            fg_color=FIELD, selected_color=ACCENT, selected_hover_color=ACCENT_HOVER,
-            unselected_color=FIELD, unselected_hover_color="#343846",
-        ).pack(fill="x", pady=(6, 10))
-
-        # swappable detection panels (host keeps the position fixed)
-        host = ctk.CTkFrame(inner, fg_color="transparent")
-        host.pack(fill="x", pady=(0, 4))
+        # tiles is the only mode
         self.panels: dict[str, ctk.CTkFrame] = {}
-        self._build_template_panel(host)
-        self._build_color_panel(host)
-        self._build_pixel_panel(host)
-        self._build_tiles_panel(host)
-        self._switch_panel("template")
-
-        # interval + click mode (two columns)
-        grid = ctk.CTkFrame(inner, fg_color="transparent")
-        grid.pack(fill="x", pady=(0, 6))
-        grid.columnconfigure((0, 1), weight=1, uniform="g")
-
-        col_i = ctk.CTkFrame(grid, fg_color="transparent")
-        col_i.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        ctk.CTkLabel(col_i, text="INTERVAL (ms)", font=self.f_section,
-                     text_color=MUTED).pack(anchor="w")
-        self.interval_ms = tk.StringVar(value="500")
-        ctk.CTkEntry(
-            col_i, textvariable=self.interval_ms, font=self.f_label,
-            fg_color=FIELD, border_width=0, corner_radius=10, height=36,
-            justify="center",
-        ).pack(fill="x", pady=(6, 0))
-
-        col_m = ctk.CTkFrame(grid, fg_color="transparent")
-        col_m.grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        ctk.CTkLabel(col_m, text="CLICK MODE", font=self.f_section,
-                     text_color=MUTED).pack(anchor="w")
-        self.click_mode = tk.StringVar(value="first")
-        ctk.CTkSegmentedButton(
-            col_m, values=["first", "all"], variable=self.click_mode,
-            font=self.f_label, height=36, corner_radius=10,
-            fg_color=FIELD, selected_color=ACCENT, selected_hover_color=ACCENT_HOVER,
-            unselected_color=FIELD, unselected_hover_color="#343846",
-        ).pack(fill="x", pady=(6, 0))
+        self._build_tiles_panel(inner)
+        self.panels["tiles"].pack(fill="x", pady=(0, 4))
 
         # start delay (countdown after pressing Start, to switch to the game)
         ctk.CTkLabel(inner, text="START DELAY (s)", font=self.f_section,
@@ -195,24 +145,11 @@ class App:
         self.region = tk.StringVar(value="")
         ctk.CTkEntry(
             inner, textvariable=self.region, font=self.f_value,
-            placeholder_text="top, left, width, height  —  empty = full screen",
+            placeholder_text="top, left, width, height  (pick a window above)",
             fg_color=FIELD, border_width=0, corner_radius=10, height=36,
             justify="center",
         ).pack(fill="x", pady=(8, 4))
         self._refresh_windows()
-
-        # background switch
-        sw_row = ctk.CTkFrame(inner, fg_color="transparent")
-        sw_row.pack(fill="x", pady=(12, 0))
-        sw_row.columnconfigure(0, weight=1)
-        ctk.CTkLabel(sw_row, text="Background click", font=self.f_label,
-                     text_color=TEXT).grid(row=0, column=0, sticky="w")
-        self._muted(sw_row, "don't move the real cursor").grid(row=1, column=0, sticky="w")
-        self.background = tk.BooleanVar(value=True)
-        ctk.CTkSwitch(
-            sw_row, text="", variable=self.background, onvalue=True, offvalue=False,
-            progress_color=GREEN, button_color="#ffffff", fg_color=FIELD, width=48,
-        ).grid(row=0, column=1, rowspan=2, sticky="e")
 
         # start/stop
         self.toggle_btn = ctk.CTkButton(
@@ -232,102 +169,7 @@ class App:
         ctk.CTkLabel(status, textvariable=self.status, font=self.f_sub,
                      text_color=MUTED).pack(side="left", padx=(4, 0))
 
-    # --- detection panels --------------------------------------------------
-    def _build_template_panel(self, host) -> None:
-        p = ctk.CTkFrame(host, fg_color="transparent")
-        self.panels["template"] = p
-        ctk.CTkButton(
-            p, text="＋  Choose template files", font=self.f_label,
-            fg_color=FIELD, hover_color="#343846", text_color=TEXT,
-            corner_radius=10, height=38, anchor="w", command=self._pick_templates,
-        ).pack(fill="x", pady=(0, 4))
-        self.templates_label = self._muted(p, "No template selected")
-        self.templates_label.pack(anchor="w", pady=(0, 6))
-
-        thr_head = ctk.CTkFrame(p, fg_color="transparent")
-        thr_head.pack(fill="x", pady=(4, 0))
-        thr_head.columnconfigure(0, weight=1)
-        ctk.CTkLabel(thr_head, text="THRESHOLD", font=self.f_section,
-                     text_color=MUTED).grid(row=0, column=0, sticky="w")
-        self.threshold = tk.DoubleVar(value=0.8)
-        self.thr_label = ctk.CTkLabel(thr_head, text="0.80", font=self.f_value,
-                                      text_color=ACCENT)
-        self.thr_label.grid(row=0, column=1, sticky="e")
-        ctk.CTkSlider(
-            p, from_=0.5, to=1.0, number_of_steps=50, variable=self.threshold,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            progress_color=ACCENT, fg_color=FIELD, height=16,
-            command=lambda v: self.thr_label.configure(text=f"{v:.2f}"),
-        ).pack(fill="x", pady=(2, 0))
-
-    def _build_color_panel(self, host) -> None:
-        p = ctk.CTkFrame(host, fg_color="transparent")
-        self.panels["color"] = p
-        row = ctk.CTkFrame(p, fg_color="transparent")
-        row.pack(fill="x", pady=(0, 6))
-        row.columnconfigure(0, weight=1)
-        ctk.CTkButton(
-            row, text="🎨  Pick color", font=self.f_label, fg_color=FIELD,
-            hover_color="#343846", text_color=TEXT, corner_radius=10, height=38,
-            command=self._pick_color,
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        self.color_swatch = ctk.CTkFrame(row, width=38, height=38, corner_radius=8,
-                                         fg_color=FIELD)
-        self.color_swatch.grid(row=0, column=1)
-        self.color_swatch.grid_propagate(False)
-        self.color_label = self._muted(p, "No color picked")
-        self.color_label.pack(anchor="w", pady=(0, 6))
-
-        head = ctk.CTkFrame(p, fg_color="transparent")
-        head.pack(fill="x")
-        head.columnconfigure(0, weight=1)
-        ctk.CTkLabel(head, text="TOLERANCE (hue°)", font=self.f_section,
-                     text_color=MUTED).grid(row=0, column=0, sticky="w")
-        self.color_tol = tk.IntVar(value=25)
-        self.color_tol_label = ctk.CTkLabel(head, text="25", font=self.f_value,
-                                            text_color=ACCENT)
-        self.color_tol_label.grid(row=0, column=1, sticky="e")
-        ctk.CTkSlider(
-            p, from_=5, to=60, number_of_steps=55, variable=self.color_tol,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            progress_color=ACCENT, fg_color=FIELD, height=16,
-            command=lambda v: self.color_tol_label.configure(text=f"{int(v)}"),
-        ).pack(fill="x", pady=(2, 0))
-
-    def _build_pixel_panel(self, host) -> None:
-        p = ctk.CTkFrame(host, fg_color="transparent")
-        self.panels["pixel"] = p
-        row = ctk.CTkFrame(p, fg_color="transparent")
-        row.pack(fill="x", pady=(0, 6))
-        row.columnconfigure(0, weight=1)
-        ctk.CTkButton(
-            row, text="🎯  Pick pixel", font=self.f_label, fg_color=FIELD,
-            hover_color="#343846", text_color=TEXT, corner_radius=10, height=38,
-            command=self._pick_pixel,
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        self.pixel_swatch = ctk.CTkFrame(row, width=38, height=38, corner_radius=8,
-                                         fg_color=FIELD)
-        self.pixel_swatch.grid(row=0, column=1)
-        self.pixel_swatch.grid_propagate(False)
-        self.pixel_label = self._muted(p, "No pixel picked")
-        self.pixel_label.pack(anchor="w", pady=(0, 6))
-
-        head = ctk.CTkFrame(p, fg_color="transparent")
-        head.pack(fill="x")
-        head.columnconfigure(0, weight=1)
-        ctk.CTkLabel(head, text="TOLERANCE (±/channel)", font=self.f_section,
-                     text_color=MUTED).grid(row=0, column=0, sticky="w")
-        self.pixel_tol = tk.IntVar(value=20)
-        self.pixel_tol_label = ctk.CTkLabel(head, text="20", font=self.f_value,
-                                            text_color=ACCENT)
-        self.pixel_tol_label.grid(row=0, column=1, sticky="e")
-        ctk.CTkSlider(
-            p, from_=0, to=60, number_of_steps=60, variable=self.pixel_tol,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            progress_color=ACCENT, fg_color=FIELD, height=16,
-            command=lambda v: self.pixel_tol_label.configure(text=f"{int(v)}"),
-        ).pack(fill="x", pady=(2, 0))
-
+    # --- detection panel ---------------------------------------------------
     def _build_tiles_panel(self, host) -> None:
         p = ctk.CTkFrame(host, fg_color="transparent")
         self.panels["tiles"] = p
@@ -565,13 +407,6 @@ class App:
         lbl.image = tkimg  # keep ref
         lbl.pack()
 
-    def _switch_panel(self, mode: str) -> None:
-        for name, panel in self.panels.items():
-            if name == mode:
-                panel.pack(fill="x")
-            else:
-                panel.pack_forget()
-
     @staticmethod
     def _bgr_hex(bgr: tuple[int, int, int]) -> str:
         b, g, r = (int(c) for c in bgr)
@@ -712,27 +547,6 @@ class App:
         b, g, r = (int(c) for c in frame[py, px])
         return px + vleft, py + vtop, (b, g, r)
 
-    def _pick_color(self) -> None:
-        res = self._eyedropper()
-        if not res:
-            return
-        _x, _y, bgr = res
-        self.color_bgr = bgr
-        hx = self._bgr_hex(bgr)
-        self.color_swatch.configure(fg_color=hx)
-        self.color_label.configure(text=f"✓ {hx}", text_color=GREEN)
-
-    def _pick_pixel(self) -> None:
-        res = self._eyedropper()
-        if not res:
-            return
-        px, py, bgr = res
-        self.pixel_point = (px, py)
-        self.pixel_bgr = bgr
-        hx = self._bgr_hex(bgr)
-        self.pixel_swatch.configure(fg_color=hx)
-        self.pixel_label.configure(text=f"✓ ({px},{py})  {hx}", text_color=GREEN)
-
     # --- target / region ---------------------------------------------------
     def _refresh_windows(self) -> None:
         self.windows = window_picker.list_windows()
@@ -820,16 +634,6 @@ class App:
             self._set_region_logical(result)
 
     # --- actions -----------------------------------------------------------
-    def _pick_templates(self) -> None:
-        paths = filedialog.askopenfilenames(
-            title="Choose template images",
-            filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp")],
-        )
-        if paths:
-            self.template_paths = list(paths)
-            names = ", ".join(p.split("/")[-1] for p in self.template_paths)
-            self.templates_label.configure(text=f"✓ {names}", text_color=GREEN)
-
     def _parse_region(self) -> dict | None:
         text = self.region.get().strip()
         if not text:
@@ -841,26 +645,8 @@ class App:
         return {"top": top, "left": left, "width": w, "height": h}
 
     def _build_config(self) -> BotConfig:
-        try:
-            interval = max(int(self.interval_ms.get()), 50) / 1000.0
-        except ValueError:
-            interval = 0.5
-        mode = self.det_mode.get()
-        # tiles needs the real cursor (hold) -> always foreground
-        background = False if mode == "tiles" else self.background.get()
         return BotConfig(
-            mode=mode,
-            template_paths=self.template_paths if mode == "template" else [],
-            threshold=round(self.threshold.get(), 2),
-            interval=interval,
             region=self._parse_region(),
-            click_mode=self.click_mode.get(),
-            background=background,
-            color_target=self.color_bgr if mode == "color" else None,
-            color_tolerance=self.color_tol.get(),
-            pixel_point=self.pixel_point if mode == "pixel" else None,
-            pixel_color=self.pixel_bgr if mode == "pixel" else None,
-            pixel_tolerance=self.pixel_tol.get(),
             tiles_lanes=self.tiles_lanes.get(),
             tiles_hit=self.tiles_hit.get() / 100.0,
             tiles_margin=self.tiles_margin.get(),
@@ -868,9 +654,9 @@ class App:
             tiles_keys=self._parse_keys(),
             tiles_start_key=self.tiles_start_key.get().strip().lower(),
             tiles_hold_extra=self.tiles_hold_extra.get(),
-            tiles_note_color=self.tiles_note_bgr if mode == "tiles" else None,
-            tiles_helpers=self._helper_templates() if mode == "tiles" else [],
-            target_hwnd=self.target_hwnd if mode == "tiles" else None,
+            tiles_note_color=self.tiles_note_bgr,
+            tiles_helpers=self._helper_templates(),
+            target_hwnd=self.target_hwnd,
             window_method="bitblt" if self.tiles_fast.get() else "printwindow",
         )
 
@@ -895,16 +681,9 @@ class App:
             window_picker.focus_window(choice)
 
     def _validate(self, cfg: BotConfig) -> str | None:
-        if cfg.mode == "template" and not cfg.template_paths:
-            return "no template selected"
-        if cfg.mode == "color" and cfg.color_target is None:
-            return "no color picked"
-        if cfg.mode == "pixel" and (cfg.pixel_point is None or cfg.pixel_color is None):
-            return "no pixel picked"
-        if cfg.mode == "tiles" and cfg.region is None:
+        if cfg.region is None:
             return "set the game region (TARGET) first"
-        if (cfg.mode == "tiles" and cfg.tiles_input == "keyboard"
-                and len(cfg.tiles_keys) < cfg.tiles_lanes):
+        if cfg.tiles_input == "keyboard" and len(cfg.tiles_keys) < cfg.tiles_lanes:
             return f"need {cfg.tiles_lanes} lane keys (got {len(cfg.tiles_keys)})"
         return None
 
