@@ -89,6 +89,23 @@ def find_color(
     return matches
 
 
+def check_pixel(
+    frame: np.ndarray,
+    x: int,
+    y: int,
+    bgr: tuple[int, int, int],
+    tolerance: int = 20,
+) -> bool:
+    """True if the pixel at (x, y) matches `bgr` within per-channel `tolerance`.
+
+    Used by pixel-watch mode (typically on a 1x1 grab, so x=y=0).
+    """
+    if y < 0 or x < 0 or y >= frame.shape[0] or x >= frame.shape[1]:
+        return False
+    px = frame[y, x]
+    return all(abs(int(px[i]) - int(bgr[i])) <= tolerance for i in range(3))
+
+
 # Manual smoke test: python -m src.detector <screenshot.png> <template.png>
 if __name__ == "__main__":
     import sys

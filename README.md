@@ -45,13 +45,30 @@ Administrator, run Python as Administrator too, otherwise clicks won't reach it.
    python main.py
    ```
 3. In the window:
-   - **Choose template files** → pick one or more files
-   - **Threshold** — match strictness (0.8 default; higher = stricter)
+   - **Detection** — `template` / `color` / `pixel` (see below)
    - **Interval (ms)** — delay between scans
    - **Click mode** — `first` clicks the first match / `all` clicks every match
    - **Target** — area to scan/click (see below)
    - **Background click** — on = click without moving the real cursor (see below)
    - **Start** / **Stop**
+
+### Detection modes
+- **template** — match a cropped image on screen (`Choose template files` +
+  **Threshold** strictness). Best for icons/buttons with a fixed look.
+- **color** — scan the region for a **colored blob** and click its center; the
+  position can be anywhere. Press **🎨 Pick color** (eyedropper) to sample a
+  color off the screen, then set **Tolerance** (hue degrees). Good for brightly
+  colored items/buttons that appear at random positions.
+- **pixel** — watch **one fixed point** and click when its color matches. Press
+  **🎯 Pick pixel** (eyedropper — one click samples both the point and its
+  color), set **Tolerance** (per-channel). Fastest/most precise. Good for a
+  button that changes color when ready, a cooldown/health bar, etc.
+
+| mode | knows position? | scans | best for |
+|------|-----------------|-------|----------|
+| template | no | whole region | fixed-look icons/buttons |
+| color | no | whole region | bright items at random spots |
+| pixel | yes (x,y) | one point | a point that changes color |
 
 ### Target — games that aren't fullscreen
 You don't have to scan the whole screen. Three options:
@@ -113,15 +130,14 @@ Prints the positions + scores found.
 
 ```
 src/capture.py       — ScreenCapture (mss)
-src/detector.py      — match_template() + find_color()
+src/detector.py      — match_template() + find_color() + check_pixel()
 src/clicker.py       — Clicker (Retina scaling + rate limit + failsafe + background backend)
 src/window_picker.py — list_windows() (macOS Quartz / Windows Win32)
-src/bot.py           — BotEngine (loop on a thread, start/stop)
-src/gui.py           — customtkinter App
+src/bot.py           — BotEngine (template/color/pixel modes; loop on a thread, start/stop)
+src/gui.py           — customtkinter App (eyedropper for color/pixel)
 main.py              — entry
 ```
 
 ## Limitations / TODO
 - no multi-monitor switching yet
 - OCR not supported
-- color mode is configured via `BotConfig` only (no GUI field yet)

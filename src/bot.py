@@ -19,9 +19,14 @@ class BotConfig:
     interval: float = 0.5  # seconds between scans
     region: dict | None = None  # {"top","left","width","height"} physical px, or None
     click_mode: str = "first"  # "first" or "all"
-    # optional color mode
+    mode: str = "template"  # "template" | "color" | "pixel"
+    # color mode (scan a region for a colored blob)
     color_target: tuple[int, int, int] | None = None  # BGR
     color_tolerance: int = 25
+    # pixel mode (watch one point; click when its color matches)
+    pixel_point: tuple[int, int] | None = None  # physical screen px (x, y)
+    pixel_color: tuple[int, int, int] | None = None  # BGR
+    pixel_tolerance: int = 20  # per-channel BGR
     min_click_interval: float = 0.3
     jitter: int = 0
     background: bool = False  # click without moving the real cursor (macOS)
@@ -56,22 +61,36 @@ class BotEngine:
         return self._thread is not None and self._thread.is_alive()
 
     # --- core loop ---------------------------------------------------------
+    def _validate(self) -> str | None:
+        """Return an error message if the config can't run, else None."""
+        cfg = self.config
+        if cfg.mode == "color" and cfg.color_target is None:
+            return "no color picked"
+        if cfg.mode == "pixel" and (cfg.pixel_point is None or cfg.pixel_color is None):
+            return "no pixel picked"
+        if cfg.mode == "template" and not cfg.template_paths:
+            return "no templates set"
+        return None
+
     def _run(self) -> None:
         cfg = self.config
-        try:
-            templates = [detector.load_template(p) for p in cfg.template_paths]
-        except ValueError as e:
-            self.on_status(f"error: {e}")
+        err = self._validate()
+        if err:
+            self.on_status(f"error: {err}")
             return
 
-        if not templates and cfg.color_target is None:
-            self.on_status("error: no templates or color target set")
-            return
+        templates: list = []
+        if cfg.mode == "template":
+            try:
+                templates = [detector.load_template(p) for p in cfg.template_paths]
+            except ValueError as e:
+                self.on_status(f"error: {e}")
+                return
 
         # mss must be created inside this thread.
         cap = ScreenCapture()
         mon = cfg.region if cfg.region else cap.primary_monitor
-        offset = (mon["left"], mon["top"])
+        region_offset = (mon["left"], mon["top"])
         try:
             clicker = Clicker(
                 capture_width=cap.primary_monitor["width"],
@@ -87,8 +106,12 @@ class BotEngine:
 
         try:
             while not self._stop.is_set():
-                frame = cap.grab(cfg.region)
-                matches = self._detect(frame, templates)
+                if cfg.mode == "pixel":
+                    matches, offset = self._scan_pixel(cap)
+                else:
+                    frame = cap.grab(cfg.region)
+                    matches = self._detect(frame, templates)
+                    offset = region_offset
 
                 if matches:
                     targets = matches if cfg.click_mode == "all" else matches[:1]
@@ -107,12 +130,22 @@ class BotEngine:
             cap.close()
             self.on_status("stopped")
 
+    def _scan_pixel(self, cap) -> tuple[list[detector.Match], tuple[int, int]]:
+        """Grab a 1x1 region at pixel_point and test its color."""
+        cfg = self.config
+        px, py = cfg.pixel_point
+        frame = cap.grab({"top": py, "left": px, "width": 1, "height": 1})
+        if detector.check_pixel(frame, 0, 0, cfg.pixel_color, cfg.pixel_tolerance):
+            return [(0, 0, 1.0)], (px, py)
+        return [], (px, py)
+
     def _detect(self, frame, templates) -> list[detector.Match]:
         cfg = self.config
         matches: list[detector.Match] = []
-        for tpl in templates:
-            matches.extend(detector.match_template(frame, tpl, cfg.threshold))
-        if cfg.color_target is not None:
+        if cfg.mode == "template":
+            for tpl in templates:
+                matches.extend(detector.match_template(frame, tpl, cfg.threshold))
+        elif cfg.mode == "color":
             matches.extend(
                 detector.find_color(frame, cfg.color_target, cfg.color_tolerance)
             )

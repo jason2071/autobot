@@ -29,6 +29,12 @@ def test_template_match() -> None:
     assert red and abs(red[0][0] - 220) < 6 and abs(red[0][1] - 120) < 6
     print(f"  color detect OK   -> {red[0][:2]}")
 
+    # pixel check: the red blob center is (0,0,255); a bg pixel is not
+    assert detector.check_pixel(scene, 220, 120, (0, 0, 255), tolerance=10)
+    assert not detector.check_pixel(scene, 5, 5, (0, 0, 255), tolerance=10)
+    assert not detector.check_pixel(scene, 9999, 9999, (0, 0, 255))  # out of bounds
+    print("  pixel check OK")
+
 
 def test_capture_and_scale() -> None:
     cap = ScreenCapture()
