@@ -4,3 +4,4 @@ numpy>=1.26.0
 pyautogui>=0.9.54
 pynput>=1.7.6
 pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"
+pywin32>=306; sys_platform == "win32"

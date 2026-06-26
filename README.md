@@ -1,24 +1,37 @@
 # autobot
 
 บอท auto-click หาเป้าหมายบนหน้าจอด้วย **template/image match** (เสริม **color/pixel** detection)
-แล้วคลิกอัตโนมัติ. ควบคุมผ่าน GUI ปุ่ม Start/Stop.
+แล้วคลิกอัตโนมัติ. ควบคุมผ่าน GUI ปุ่ม Start/Stop. รองรับ **macOS + Windows**.
 
 ## ติดตั้ง
 
+macOS / Linux:
 ```bash
 cd autobot
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## สิทธิ์ macOS (จำเป็น)
+Windows (PowerShell):
+```powershell
+cd autobot
+python -m venv .venv; .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
 
-System Settings → Privacy & Security:
+`requirements.txt` ลง dependency ตาม OS เอง (Quartz บน macOS, pywin32 บน Windows).
+
+## สิทธิ์ระบบ
+
+**macOS** — System Settings → Privacy & Security:
 
 1. **Screen Recording** — ให้ terminal (หรือ app ที่รัน Python) capture จอได้
 2. **Accessibility** — ให้ส่ง mouse click ได้
 
-ต้องเพิ่ม **Terminal.app** / **iTerm** (หรือ IDE ที่ใช้รัน) เข้าทั้ง 2 รายการ แล้วปิด-เปิด terminal ใหม่.
+เพิ่ม **Terminal.app** / **iTerm** (หรือ IDE ที่ใช้รัน) เข้าทั้ง 2 รายการ แล้วปิด-เปิด terminal ใหม่.
+
+**Windows** — ปกติไม่ต้องตั้งสิทธิ์. แต่ถ้า target app รันแบบ Administrator
+ต้องรัน Python แบบ Administrator ด้วย (ไม่งั้นส่ง click ไม่เข้า).
 
 ## ใช้งาน
 
@@ -37,13 +50,15 @@ System Settings → Privacy & Security:
    - **Start** / **Stop**
 
 ### Background click (ไม่ขยับเมาส์)
-ติ๊ก **Background click** = บอทส่ง click ตรงไปยัง window ใต้จุดเป้าหมายผ่าน Quartz
-`CGEventPostToPid` โดย **ไม่ขยับ cursor จริงของคุณ** — ใช้เครื่องทำอย่างอื่นไปพร้อมกันได้.
+ติ๊ก **Background click** = บอทส่ง click ตรงไปยัง window ใต้จุดเป้าหมาย โดย
+**ไม่ขยับ cursor จริงของคุณ** — ใช้เครื่องทำอย่างอื่นไปพร้อมกันได้.
+
+- macOS: Quartz `CGEventPostToPid`
+- Windows: Win32 `PostMessage` (WM_LBUTTONDOWN/UP) ไปยัง window ใต้จุด
 
 ข้อจำกัด:
-- macOS เท่านั้น (ต้องมี `pyobjc-framework-Quartz`)
 - เกม/แอปที่อ่าน raw HID หรือมี anti-cheat อาจ **ไม่รับ** synthetic event
-- target ต้องเป็น window ปกติ (ไม่ใช่ menubar/overlay) ที่มองเห็นใต้จุดนั้น
+- target ต้องเป็น window ปกติที่มองเห็นใต้จุดนั้น
 
 ถ้าไม่ติ๊ก = โหมด foreground (pyautogui) ขยับ cursor จริงไปคลิก รองรับทุกแอปแต่แย่งเมาส์.
 
