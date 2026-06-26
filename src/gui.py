@@ -43,6 +43,7 @@ class App:
         self.bot: BotEngine | None = None
         self._pending_id: str | None = None  # scheduled start-delay countdown
         self.target_hwnd: int | None = None  # set when a window is the target
+        self.tiles_note_bgr: tuple[int, int, int] | None = None  # slide/note color
         self.windows: list[window_picker.Window] = []
         self.color_bgr: tuple[int, int, int] | None = None
         self.pixel_point: tuple[int, int] | None = None  # physical px
@@ -404,6 +405,27 @@ class App:
             command=lambda v: self.tiles_hold_extra_label.configure(text=f"{int(v)}"),
         ).pack(fill="x", pady=(2, 8))
 
+        # optional note/slide colour: detect bright/coloured notes & slides
+        nc_row = ctk.CTkFrame(p, fg_color="transparent")
+        nc_row.pack(fill="x", pady=(0, 8))
+        nc_row.columnconfigure(0, weight=1)
+        ctk.CTkButton(
+            nc_row, text="🎨  Pick slide / note color", font=self.f_sub,
+            fg_color=FIELD, hover_color="#343846", text_color=TEXT,
+            corner_radius=10, height=32, command=self._pick_note_color,
+        ).grid(row=0, column=0, sticky="ew")
+        self.tiles_note_swatch = ctk.CTkLabel(nc_row, text="", width=32, height=32,
+                                              corner_radius=8, fg_color=FIELD)
+        self.tiles_note_swatch.grid(row=0, column=1, padx=(8, 0))
+        ctk.CTkButton(
+            nc_row, text="✕", font=self.f_sub, fg_color=FIELD,
+            hover_color="#343846", text_color=MUTED, corner_radius=8,
+            width=32, height=32, command=self._clear_note_color,
+        ).grid(row=0, column=2, padx=(6, 0))
+        self.tiles_note_label = self._muted(
+            p, "optional: for bright notes / diagonal slides (off = dark tiles only)")
+        self.tiles_note_label.pack(anchor="w", pady=(0, 8))
+
         # input backend: mouse (single finger) or keyboard (per-lane keys)
         ctk.CTkLabel(p, text="INPUT", font=self.f_section,
                      text_color=MUTED).pack(anchor="w", pady=(2, 0))
@@ -464,6 +486,22 @@ class App:
         self._tiles_preview_btn.pack(fill="x", pady=(8, 0))
         # kb frame sits between the segmented button and the preview button
         self._on_tiles_input("mouse")
+
+    def _pick_note_color(self) -> None:
+        res = self._eyedropper()
+        if not res:
+            return
+        _x, _y, bgr = res
+        self.tiles_note_bgr = bgr
+        self.tiles_note_swatch.configure(fg_color=self._bgr_hex(bgr))
+        self.tiles_note_label.configure(
+            text=f"✓ slide/note color {self._bgr_hex(bgr)}  (✕ to clear)")
+
+    def _clear_note_color(self) -> None:
+        self.tiles_note_bgr = None
+        self.tiles_note_swatch.configure(fg_color=FIELD)
+        self.tiles_note_label.configure(
+            text="optional: for bright notes / diagonal slides (off = dark tiles only)")
 
     def _on_tiles_input(self, choice: str) -> None:
         """Show the key field only for the keyboard backend."""
@@ -830,6 +868,7 @@ class App:
             tiles_keys=self._parse_keys(),
             tiles_start_key=self.tiles_start_key.get().strip().lower(),
             tiles_hold_extra=self.tiles_hold_extra.get(),
+            tiles_note_color=self.tiles_note_bgr if mode == "tiles" else None,
             tiles_helpers=self._helper_templates() if mode == "tiles" else [],
             target_hwnd=self.target_hwnd if mode == "tiles" else None,
             window_method="bitblt" if self.tiles_fast.get() else "printwindow",

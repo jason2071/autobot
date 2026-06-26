@@ -189,11 +189,24 @@ def test_tiles_game_cases() -> None:
         dark = _lane_darks(cv2.imread(p), hit=0.70)
         assert dark == [True, False, True, False], f"{name}: {dark}"
         print(f"  {name} long notes -> {[int(x) for x in dark]}")
-    # diagonal slide: bright/diagonal note is unsupported — must NOT false-fire
+    # diagonal slide: invisible to darkness, but the colour detector follows it
     if os.path.isfile("templates/game1.png"):
-        dark = _lane_darks(cv2.imread("templates/game1.png"), hit=0.70)
-        assert not any(dark), f"game1 slide should not false-fire: {dark}"
-        print("  game1 slide (unsupported) -> no false detection")
+        img = cv2.imread("templates/game1.png")
+        h = img.shape[0]
+        _c, bands = bot.tiles_lane_geometry(img, 4)
+        # darkness alone must NOT false-fire on this bright skin
+        assert not any(_lane_darks(img, hit=0.70)), "game1 dark false-fire"
+        # colour detector follows the slide across lanes (L2 high -> L3 low)
+        note = tuple(int(v) for v in img[int(h * 0.45),
+                     (bands[2][0] + bands[2][1]) // 2])
+        top_hi = int(h * 0.45) - 9
+        top_lo = int(h * 0.82) - 9
+        hi = bot.tiles_color_lanes(img[top_hi:top_hi + 18], bands, note, 18)
+        lo = bot.tiles_color_lanes(img[top_lo:top_lo + 18], bands, note, 18)
+        assert hi[2] and not hi[3], f"slide top should be lane 2: {hi}"
+        assert lo[3] and not lo[2], f"slide bottom should be lane 3: {lo}"
+        print(f"  game1 slide via color -> top{[int(x) for x in hi]} "
+              f"bottom{[int(x) for x in lo]}")
     else:
         print("  (game1 missing — skipped)")
 

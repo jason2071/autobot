@@ -42,6 +42,11 @@ class BotConfig:
     tiles_hold_extra: int = 0      # opt-in: extra light frames before releasing
                                    # a hold (helps long notes whose dark part is
                                    # shorter than the note; 0 = no change)
+    # opt-in: also flag a lane active when it carries this note colour (BGR) —
+    # detects bright/coloured notes and slides (the lit lane shifts across the
+    # board, and the per-lane state machine follows it). None = darkness only.
+    tiles_note_color: tuple[int, int, int] | None = None
+    tiles_note_tol: int = 18       # hue tolerance (degrees) for the note colour
     # input backend: "mouse" (single finger) or "keyboard" (per-lane keys, so
     # multiple long tiles / chords can be held at once via LDPlayer key mapping)
     tiles_input: str = "mouse"
@@ -97,6 +102,26 @@ def tiles_dark_frac(
     bg = means[len(means) // 2]
     thr = bg - margin
     return [float((b < thr).mean()) > min_frac for b in lane_bands]
+
+
+def tiles_color_lanes(frame, lane_bands_x, bgr, hue_tol, min_frac=0.30):
+    """Flag lanes whose hit band is mostly the note colour `bgr` (within
+    `hue_tol` hue degrees). Used for bright/coloured notes and slides — the lit
+    lane shifts across the board as the diagonal descends.
+
+    `frame` is the BGR strip; `lane_bands_x` is the list of (x0, x1) columns.
+    Returns one bool per lane.
+    """
+    import cv2
+    import numpy as np
+
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    th, ts, tv = cv2.cvtColor(np.uint8([[list(bgr)]]), cv2.COLOR_BGR2HSV)[0][0]
+    lo = np.array([max(int(th) - hue_tol, 0), 80, 80])
+    hi = np.array([min(int(th) + hue_tol, 179), 255, 255])
+    mask = cv2.inRange(hsv, lo, hi)
+    return [float(mask[:, x0:x1].mean()) / 255.0 > min_frac
+            for x0, x1 in lane_bands_x]
 
 
 def tiles_should_release(
@@ -438,7 +463,12 @@ class BotEngine:
         def _read_dark():
             frame = src_grab(strip)
             means = [float(frame[:, x0:x1].mean()) for x0, x1 in bands]
-            return tiles_dark_lanes(means, cfg.tiles_margin)
+            active = tiles_dark_lanes(means, cfg.tiles_margin)
+            if cfg.tiles_note_color is not None:  # OR in coloured notes / slides
+                col = tiles_color_lanes(frame, bands, cfg.tiles_note_color,
+                                        cfg.tiles_note_tol)
+                active = [a or c for a, c in zip(active, col)]
+            return active
 
         # helper buttons (start, etc.) clicked on sight between songs
         helpers = []
