@@ -412,6 +412,17 @@ class App:
             "map these keys to the lanes in LDPlayer.\n"
             "holds multiple keys -> 2+ long tiles at once.",
         ).pack(anchor="w", pady=(4, 0))
+        self.tiles_start_key = tk.StringVar(value="f")
+        ctk.CTkEntry(
+            self.tiles_kb_frame, textvariable=self.tiles_start_key, font=self.f_label,
+            fg_color=FIELD, border_width=0, corner_radius=10, height=34,
+            justify="center", placeholder_text="start key (map to START)",
+        ).pack(fill="x", pady=(6, 0))
+        self._muted(
+            self.tiles_kb_frame,
+            "key to start a song (map to START in LDPlayer).\n"
+            "keeps the mouse off the game. empty = click instead.",
+        ).pack(anchor="w", pady=(4, 0))
 
         # default = reliable PrintWindow (overlap-proof). Toggle ON for faster
         # BitBlt capture (only if the game stays uncovered on top).
@@ -800,6 +811,7 @@ class App:
             tiles_margin=self.tiles_margin.get(),
             tiles_input=self.tiles_input.get(),
             tiles_keys=self._parse_keys(),
+            tiles_start_key=self.tiles_start_key.get().strip().lower(),
             tiles_helpers=self._helper_templates() if mode == "tiles" else [],
             target_hwnd=self.target_hwnd if mode == "tiles" else None,
             window_method="bitblt" if self.tiles_fast.get() else "printwindow",

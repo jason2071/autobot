@@ -43,6 +43,10 @@ class BotConfig:
     # multiple long tiles / chords can be held at once via LDPlayer key mapping)
     tiles_input: str = "mouse"
     tiles_keys: list[str] = field(default_factory=lambda: ["d", "f", "j", "k"])
+    # in keyboard mode, press this key to start a song (map it to START in
+    # LDPlayer) instead of mouse-clicking — keeps the cursor off the game. Empty
+    # = click as usual.
+    tiles_start_key: str = "f"
     # when set, capture this window directly instead of a screen region.
     # region is window-local. window_method: "bitblt" (fast) keeps the window
     # visible; "printwindow" (slower) is immune to other apps overlapping it.
@@ -456,7 +460,11 @@ class BotEngine:
                     continue
                 hx, hy, _ = hits[0]
                 release_all()  # drop any holds before clicking
-                if "unlock" in path.lower():
+                if "start" in path.lower() and use_kb and cfg.tiles_start_key:
+                    # press a mapped key to start — keeps the mouse off the game
+                    kb.press(cfg.tiles_start_key)
+                    kb.release(cfg.tiles_start_key)
+                elif "unlock" in path.lower():
                     # leave the locked-song popup -> first bottom thumbnail
                     pyautogui.click((ox + fw * 0.066) * scale,
                                     (oy + fh * 0.95) * scale)
