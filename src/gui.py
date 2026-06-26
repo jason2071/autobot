@@ -206,7 +206,7 @@ class App:
 
         self.tiles_input = tk.StringVar(value="mouse")
         ctk.CTkSegmentedButton(
-            left, values=["mouse", "keyboard"], variable=self.tiles_input,
+            left, values=["mouse", "keyboard", "background"], variable=self.tiles_input,
             command=self._on_tiles_input, font=self.f_label, height=34,
             corner_radius=10, fg_color=FIELD, selected_color=ACCENT,
             selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,

@@ -70,13 +70,17 @@ Administrator, run Python as Administrator too, otherwise clicks won't reach it.
   **Contrast** (how much darker a tile is than the lane background — relative,
   so it works on any skin: black, blue, etc.). The lane columns are
   **auto-detected** from the board edges (side margins won't shift them); press
-  **◎ Preview lanes** to verify. Two **INPUT** backends:
-  - **mouse** — one real cursor. Handles one tile/hold at a time; chords (tiles
-    in the same row) are quick-tapped. No two simultaneous holds.
+  **◎ Preview lanes** to verify. Three **INPUT** backends:
+  - **mouse** — one real cursor (foreground). One tile/hold at a time; chords are
+    quick-tapped. No two simultaneous holds. Takes over your mouse.
   - **keyboard** — one key per lane, mapped to the lanes in LDPlayer's keyboard
-    settings (e.g. `d f j k`). Each lane is independent, so **multiple long
-    tiles / chords hold at once**. This is the way to support 2+ simultaneous
-    holds. Set the lane keys in the GUI to match your LDPlayer mapping.
+    settings (e.g. `d f j k`). Independent per lane → **multiple long tiles /
+    chords hold at once**. Foreground: the game must stay focused.
+  - **background** — Win32 multi-touch injection (`InjectTouchInput`) straight at
+    the lane points. **Multi-finger AND no focus needed** — play while you work
+    in another window, and the real cursor never moves. The game must stay
+    **visible / uncovered** (touch lands on whatever window is on top). No
+    LDPlayer key-mapping required.
 
   Stop with **Esc** at any time (works even while inputs are held).
 

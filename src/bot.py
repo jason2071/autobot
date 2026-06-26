@@ -317,21 +317,26 @@ class BotEngine:
         # lane geometry: even split until the real board is confidently
         # detected (edges near the region borders), then lock onto it. This way
         # starting on a menu / start screen doesn't lock in a wrong layout.
-        ly = (oy + hit_y) * scale
+        ly = (oy + hit_y) * scale            # logical hit-line y (mouse/keyboard)
+        typ = int(oy + hit_y)                # physical hit-line y (touch)
         centers, bands = tiles_lane_geometry(src_grab(mon), lanes)
-        lx = [(ox + mon["left"] + cx) * scale for cx in centers]
+        lx = [(ox + mon["left"] + cx) * scale for cx in centers]   # logical lane x
+        tx = [int(ox + mon["left"] + cx) for cx in centers]        # physical lane x
         locked = tiles_board_edges(src_grab(mon)) is not None
 
         def _recalibrate(board) -> None:
-            nonlocal centers, bands, lx, locked
+            nonlocal centers, bands, lx, tx, locked
             if tiles_board_edges(board) is None:
                 return
             centers, bands = tiles_lane_geometry(board, lanes)
             lx = [(ox + mon["left"] + cx) * scale for cx in centers]
+            tx = [int(ox + mon["left"] + cx) for cx in centers]
             locked = True
 
-        # --- per-lane actuator (mouse single-finger vs keyboard multi-key) ----
+        # --- per-lane actuator: mouse (single finger) / keyboard (multi-key) /
+        #     background (multi-touch via InjectTouchInput, no focus needed) ----
         use_kb = cfg.tiles_input == "keyboard"
+        use_touch = cfg.tiles_input == "background"
         kb = None
         keys = list(cfg.tiles_keys)
         if use_kb:
@@ -341,18 +346,33 @@ class BotEngine:
             except Exception:
                 use_kb = False  # fall back to mouse if pynput missing
 
+        touch = None  # physical lane coords tx/typ computed above
+        if use_touch:
+            try:
+                from .touch import TouchInjector
+                touch = TouchInjector(max_contacts=max(lanes + 2, 10))
+            except Exception:
+                use_touch = False  # fall back to mouse if injection unavailable
+
+        # per-lane multi (keyboard + background) vs single pointer (mouse)
+        multi = use_kb or use_touch
+
         down = [False] * lanes          # which lanes are currently held
         held_since = [0.0] * lanes
 
         def press(i):
             if use_kb:
                 kb.press(keys[i % len(keys)])
+            elif use_touch:
+                touch.down(i, tx[i], typ)
             else:
                 pyautogui.mouseDown(lx[i], ly)
 
         def release(i):
             if use_kb:
                 kb.release(keys[i % len(keys)])
+            elif use_touch:
+                touch.up(i)
             else:
                 pyautogui.mouseUp()
 
@@ -360,6 +380,8 @@ class BotEngine:
             if use_kb:
                 kb.press(keys[i % len(keys)])
                 kb.release(keys[i % len(keys)])
+            elif use_touch:
+                touch.tap(i, tx[i], typ)
             else:
                 pyautogui.click(lx[i], ly)
 
@@ -419,23 +441,28 @@ class BotEngine:
                     continue
                 hx, hy, _ = hits[0]
                 release_all()  # drop any holds before clicking
-                if "start" in path.lower() and use_kb and cfg.tiles_start_key:
-                    # press a mapped key to start — keeps the mouse off the game
+                if "unlock" in path.lower():
+                    # leave the locked-song popup -> first bottom thumbnail
+                    cx_, cy_ = fw * 0.066, fh * 0.95
+                elif "start" in path.lower() and use_kb and cfg.tiles_start_key:
+                    # keyboard mode: press a mapped key to start (cursor stays off)
                     kb.press(cfg.tiles_start_key)
                     kb.release(cfg.tiles_start_key)
-                elif "unlock" in path.lower():
-                    # leave the locked-song popup -> first bottom thumbnail
-                    pyautogui.click((ox + fw * 0.066) * scale,
-                                    (oy + fh * 0.95) * scale)
+                    return True
                 else:
-                    pyautogui.click((ox + hx) * scale, (oy + hy) * scale)
+                    cx_, cy_ = hx, hy
+                if use_touch:  # background tap (no cursor move, no focus needed)
+                    touch.tap(lanes, int(ox + cx_), int(oy + cy_))
+                else:
+                    pyautogui.click((ox + cx_) * scale, (oy + cy_) * scale)
                 return True
             return False
 
         # prime: lanes already dark at start must NOT fire
         light_streak = [cfg.tiles_release_frames] * lanes
         prev = _read_dark()
-        backend = "keyboard" if use_kb else "mouse"
+        backend = ("keyboard" if use_kb else
+                   "background" if use_touch else "mouse")
         self.on_status(f"running (tiles/{backend}) — Esc to stop")
         try:
             while not self._stop.is_set():
@@ -454,8 +481,9 @@ class BotEngine:
                     _read_dark(), light_streak,
                     cfg.tiles_release_frames + cfg.tiles_hold_extra)
 
-                if use_kb:
+                if multi:
                     # independent per-lane state -> true multi-hold + chords
+                    # (keyboard keys or background multi-touch)
                     for act, i in tiles_kb_step(
                         prev, dark, down, held_since, now, cfg.tiles_max_hold
                     ):
@@ -482,6 +510,8 @@ class BotEngine:
                 self._stop.wait(cfg.tiles_poll)
         finally:
             release_all()
+            if touch is not None:
+                touch.close()
             if listener is not None:
                 listener.stop()
             if win is not None:
