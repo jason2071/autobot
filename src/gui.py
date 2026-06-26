@@ -788,4 +788,7 @@ class App:
         self.root.destroy()
 
     def run(self) -> None:
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        except KeyboardInterrupt:  # Ctrl+C — exit cleanly, no traceback
+            self._on_close()
