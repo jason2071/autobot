@@ -53,7 +53,7 @@ class App:
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # --- fonts -------------------------------------------------------------
+    # --- fonts ----------------------------------------------------------------
     def _fonts(self) -> None:
         self.f_title = ctk.CTkFont("SF Pro Display", 22, "bold")
         self.f_sub = ctk.CTkFont("SF Pro Text", 12)
@@ -62,7 +62,7 @@ class App:
         self.f_btn = ctk.CTkFont("SF Pro Text", 15, "bold")
         self.f_section = ctk.CTkFont("SF Pro Text", 11, "bold")
 
-    # --- small builders ----------------------------------------------------
+    # --- small builders -------------------------------------------------------
     def _label(self, master, text, **kw):
         kw.setdefault("font", self.f_label)
         kw.setdefault("text_color", TEXT)
@@ -77,200 +77,225 @@ class App:
         f.columnconfigure(0, weight=1)
         return f
 
-    # --- layout ------------------------------------------------------------
-    def _build(self) -> None:
-        outer = ctk.CTkFrame(self.root, fg_color="transparent")
-        outer.pack(padx=22, pady=20, fill="both")
+    def _slider_group(
+        self,
+        parent,
+        section_text: str,
+        var: tk.IntVar,
+        from_: int,
+        to: int,
+        steps: int,
+        lbl_attr: str,
+        default: int,
+    ) -> None:
+        """Header row (section label + live value) + slider, packed into parent."""
+        hdr = ctk.CTkFrame(parent, fg_color="transparent")
+        hdr.pack(fill="x")
+        hdr.columnconfigure(0, weight=1)
+        ctk.CTkLabel(hdr, text=section_text, font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
+        val_lbl = ctk.CTkLabel(hdr, text=str(default), font=self.f_value,
+                               text_color=ACCENT)
+        val_lbl.grid(row=0, column=1, sticky="e")
+        setattr(self, lbl_attr, val_lbl)
+        ctk.CTkSlider(
+            parent, from_=from_, to=to, number_of_steps=steps, variable=var,
+            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
+            progress_color=ACCENT, fg_color=FIELD, height=14,
+            command=lambda v, lbl=val_lbl: lbl.configure(text=f"{int(v)}"),
+        ).pack(fill="x", pady=(2, 0))
 
-        # header
+    # --- layout ---------------------------------------------------------------
+    def _build(self) -> None:
+        self.root.geometry("420x740")
+
+        outer = ctk.CTkFrame(self.root, fg_color="transparent")
+        outer.pack(padx=14, pady=14, fill="both", expand=True)
+
+        # ── header ────────────────────────────────────────────────────────────
         head = ctk.CTkFrame(outer, fg_color="transparent")
         head.pack(fill="x")
-        ctk.CTkLabel(head, text="🎯", font=ctk.CTkFont(size=26)).pack(side="left")
+        ctk.CTkLabel(head, text="🎯", font=ctk.CTkFont(size=24)).pack(side="left")
         htext = ctk.CTkFrame(head, fg_color="transparent")
-        htext.pack(side="left", padx=(10, 0))
-        ctk.CTkLabel(htext, text="autobot", font=self.f_title, text_color=TEXT).pack(
-            anchor="w"
-        )
-        ctk.CTkLabel(
-            htext, text="Magic Tiles 3 autoplay",
-            font=self.f_sub, text_color=MUTED,
-        ).pack(anchor="w")
+        htext.pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(htext, text="autobot", font=self.f_title,
+                     text_color=TEXT).pack(anchor="w")
+        ctk.CTkLabel(htext, text="Magic Tiles 3 autoplay",
+                     font=self.f_sub, text_color=MUTED).pack(anchor="w")
 
+        # ── settings card with scrollable content ─────────────────────────
         card = ctk.CTkFrame(outer, fg_color=CARD, corner_radius=16)
-        card.pack(fill="x", pady=(16, 0))
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=18, pady=16)
+        card.pack(fill="both", expand=True, pady=(12, 0))
+
+        scroll = ctk.CTkScrollableFrame(
+            card, fg_color="transparent",
+            scrollbar_button_color=FIELD,
+            scrollbar_button_hover_color="#343846",
+        )
+        scroll.pack(fill="both", expand=True, padx=14, pady=10)
 
         # tiles is the only mode
         self.panels: dict[str, ctk.CTkFrame] = {}
-        self._build_tiles_panel(inner)
-        self.panels["tiles"].pack(fill="x", pady=(0, 4))
+        self._build_tiles_panel(scroll)
+        self.panels["tiles"].pack(fill="x")
 
-        # start delay (countdown after pressing Start, to switch to the game)
-        ctk.CTkLabel(inner, text="START DELAY (s)", font=self.f_section,
-                     text_color=MUTED).pack(anchor="w", pady=(10, 0))
+        # thin divider between detection settings and session settings
+        ctk.CTkFrame(scroll, fg_color=FIELD, height=1,
+                     corner_radius=0).pack(fill="x", pady=(10, 0))
+
+        # ── START DELAY — compact inline row ──────────────────────────────
+        delay_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        delay_row.pack(fill="x", pady=(8, 0))
+        delay_row.columnconfigure(0, weight=1)
+        ctk.CTkLabel(delay_row, text="START DELAY (s)", font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
         self.start_delay = tk.StringVar(value="3")
         ctk.CTkEntry(
-            inner, textvariable=self.start_delay, font=self.f_label,
-            fg_color=FIELD, border_width=0, corner_radius=10, height=36,
-            justify="center",
-        ).pack(fill="x", pady=(6, 0))
+            delay_row, textvariable=self.start_delay, font=self.f_label,
+            fg_color=FIELD, border_width=0, corner_radius=10,
+            height=32, width=72, justify="center",
+        ).grid(row=0, column=1, sticky="e")
 
-        # target
-        ctk.CTkLabel(inner, text="TARGET", font=self.f_section,
-                     text_color=MUTED).pack(anchor="w", pady=(12, 0))
+        # ── TARGET ────────────────────────────────────────────────────────
+        ctk.CTkLabel(scroll, text="TARGET", font=self.f_section,
+                     text_color=MUTED).pack(anchor="w", pady=(10, 0))
         self.window_choice = tk.StringVar(value="Full screen")
         self.window_menu = ctk.CTkOptionMenu(
-            inner, variable=self.window_choice, values=["Full screen"],
+            scroll, variable=self.window_choice, values=["Full screen"],
             font=self.f_label, fg_color=FIELD, button_color=FIELD,
-            button_hover_color="#343846", corner_radius=10, height=36,
+            button_hover_color="#343846", corner_radius=10, height=34,
             command=self._on_window_pick,
         )
-        self.window_menu.pack(fill="x", pady=(6, 6))
+        self.window_menu.pack(fill="x", pady=(4, 4))
 
-        tbtns = ctk.CTkFrame(inner, fg_color="transparent")
+        tbtns = ctk.CTkFrame(scroll, fg_color="transparent")
         tbtns.pack(fill="x")
         tbtns.columnconfigure((0, 1), weight=1, uniform="t")
         ctk.CTkButton(
             tbtns, text="🔄  Refresh", font=self.f_sub, fg_color=FIELD,
-            hover_color="#343846", text_color=TEXT, corner_radius=10, height=32,
+            hover_color="#343846", text_color=TEXT, corner_radius=10, height=30,
             command=self._refresh_windows,
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 5))
         ctk.CTkButton(
             tbtns, text="◰  Drag area", font=self.f_sub, fg_color=FIELD,
-            hover_color="#343846", text_color=TEXT, corner_radius=10, height=32,
+            hover_color="#343846", text_color=TEXT, corner_radius=10, height=30,
             command=self._drag_region,
-        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        ).grid(row=0, column=1, sticky="ew", padx=(5, 0))
 
         self.region = tk.StringVar(value="")
         ctk.CTkEntry(
-            inner, textvariable=self.region, font=self.f_value,
-            placeholder_text="top, left, width, height  (pick a window above)",
-            fg_color=FIELD, border_width=0, corner_radius=10, height=36,
-            justify="center",
-        ).pack(fill="x", pady=(8, 4))
+            scroll, textvariable=self.region, font=self.f_value,
+            placeholder_text="top, left, width, height",
+            fg_color=FIELD, border_width=0, corner_radius=10,
+            height=34, justify="center",
+        ).pack(fill="x", pady=(6, 2))
         self._refresh_windows()
 
-        # start/stop
+        # ── Start / Stop (outside scroll — always visible) ────────────────
         self.toggle_btn = ctk.CTkButton(
             outer, text="▶   Start", font=self.f_btn, fg_color=GREEN,
             hover_color=GREEN_HOVER, text_color="#ffffff", corner_radius=12,
-            height=52, command=self._toggle,
+            height=48, command=self._toggle,
         )
-        self.toggle_btn.pack(fill="x", pady=(16, 0))
+        self.toggle_btn.pack(fill="x", pady=(12, 0))
 
-        # status
-        status = ctk.CTkFrame(outer, fg_color="transparent")
-        status.pack(fill="x", pady=(12, 0))
-        self.dot = ctk.CTkLabel(status, text="●", font=ctk.CTkFont(size=13),
+        # ── status ────────────────────────────────────────────────────────
+        status_row = ctk.CTkFrame(outer, fg_color="transparent")
+        status_row.pack(fill="x", pady=(8, 0))
+        self.dot = ctk.CTkLabel(status_row, text="●", font=ctk.CTkFont(size=13),
                                 text_color=MUTED, width=14)
         self.dot.pack(side="left")
         self.status = tk.StringVar(value="Ready")
-        ctk.CTkLabel(status, textvariable=self.status, font=self.f_sub,
+        ctk.CTkLabel(status_row, textvariable=self.status, font=self.f_sub,
                      text_color=MUTED).pack(side="left", padx=(4, 0))
 
-    # --- detection panel ---------------------------------------------------
+    # --- detection panel ------------------------------------------------------
     def _build_tiles_panel(self, host) -> None:
         p = ctk.CTkFrame(host, fg_color="transparent")
         self.panels["tiles"] = p
 
+        # blurb
         self._muted(
-            p, "Magic Tiles 3 — set TARGET to the play area (4 lanes).\n"
-               "Foreground only: keeps the real cursor for tap & hold.",
+            p, "Set TARGET to the play area (4 lanes).\n"
+               "Foreground: real cursor for tap & hold.",
         ).pack(anchor="w", pady=(0, 8))
 
-        # lanes
-        lane_row = ctk.CTkFrame(p, fg_color="transparent")
-        lane_row.pack(fill="x", pady=(0, 6))
-        lane_row.columnconfigure(0, weight=1)
-        ctk.CTkLabel(lane_row, text="LANES", font=self.f_section,
-                     text_color=MUTED).grid(row=0, column=0, sticky="w")
+        # ── 2 × 2 slider grid ─────────────────────────────────────────────
+        # Row 0: LANES | HIT LINE %
+        # Row 1: CONTRAST | HOLD EXTRA
+        sg = ctk.CTkFrame(p, fg_color="transparent")
+        sg.pack(fill="x", pady=(0, 6))
+        sg.columnconfigure((0, 1), weight=1, uniform="sl")
+
+        c_lanes = ctk.CTkFrame(sg, fg_color="transparent")
+        c_lanes.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+
+        c_hit = ctk.CTkFrame(sg, fg_color="transparent")
+        c_hit.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+
+        c_ctr = ctk.CTkFrame(sg, fg_color="transparent")
+        c_ctr.grid(row=1, column=0, sticky="nsew", padx=(0, 5), pady=(8, 0))
+
+        c_he = ctk.CTkFrame(sg, fg_color="transparent")
+        c_he.grid(row=1, column=1, sticky="nsew", padx=(5, 0), pady=(8, 0))
+
         self.tiles_lanes = tk.IntVar(value=4)
-        self.tiles_lanes_label = ctk.CTkLabel(lane_row, text="4", font=self.f_value,
-                                              text_color=ACCENT)
-        self.tiles_lanes_label.grid(row=0, column=1, sticky="e")
-        ctk.CTkSlider(
-            p, from_=1, to=8, number_of_steps=7, variable=self.tiles_lanes,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            progress_color=ACCENT, fg_color=FIELD, height=16,
-            command=lambda v: self.tiles_lanes_label.configure(text=f"{int(v)}"),
-        ).pack(fill="x", pady=(2, 8))
+        self._slider_group(c_lanes, "LANES", self.tiles_lanes,
+                           1, 8, 7, "tiles_lanes_label", 4)
 
-        # hit line position
-        hit_row = ctk.CTkFrame(p, fg_color="transparent")
-        hit_row.pack(fill="x", pady=(0, 6))
-        hit_row.columnconfigure(0, weight=1)
-        ctk.CTkLabel(hit_row, text="HIT LINE (% of height)", font=self.f_section,
-                     text_color=MUTED).grid(row=0, column=0, sticky="w")
         self.tiles_hit = tk.IntVar(value=80)
-        self.tiles_hit_label = ctk.CTkLabel(hit_row, text="80", font=self.f_value,
-                                            text_color=ACCENT)
-        self.tiles_hit_label.grid(row=0, column=1, sticky="e")
-        ctk.CTkSlider(
-            p, from_=50, to=98, number_of_steps=48, variable=self.tiles_hit,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            progress_color=ACCENT, fg_color=FIELD, height=16,
-            command=lambda v: self.tiles_hit_label.configure(text=f"{int(v)}"),
-        ).pack(fill="x", pady=(2, 8))
+        self._slider_group(c_hit, "HIT LINE %", self.tiles_hit,
+                           50, 98, 48, "tiles_hit_label", 80)
 
-        # contrast margin (tile darkness vs lane background)
-        dk_row = ctk.CTkFrame(p, fg_color="transparent")
-        dk_row.pack(fill="x", pady=(0, 6))
-        dk_row.columnconfigure(0, weight=1)
-        ctk.CTkLabel(dk_row, text="CONTRAST (vs background)", font=self.f_section,
-                     text_color=MUTED).grid(row=0, column=0, sticky="w")
         self.tiles_margin = tk.IntVar(value=40)
-        self.tiles_margin_label = ctk.CTkLabel(dk_row, text="40", font=self.f_value,
-                                               text_color=ACCENT)
-        self.tiles_margin_label.grid(row=0, column=1, sticky="e")
-        ctk.CTkSlider(
-            p, from_=15, to=120, number_of_steps=105, variable=self.tiles_margin,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            progress_color=ACCENT, fg_color=FIELD, height=16,
-            command=lambda v: self.tiles_margin_label.configure(text=f"{int(v)}"),
-        ).pack(fill="x", pady=(2, 8))
+        self._slider_group(c_ctr, "CONTRAST", self.tiles_margin,
+                           15, 120, 105, "tiles_margin_label", 40)
 
-        # opt-in hold extension (helps long notes with a light trail; 0 = off)
-        he_row = ctk.CTkFrame(p, fg_color="transparent")
-        he_row.pack(fill="x", pady=(0, 6))
-        he_row.columnconfigure(0, weight=1)
-        ctk.CTkLabel(he_row, text="HOLD EXTRA (long notes)", font=self.f_section,
-                     text_color=MUTED).grid(row=0, column=0, sticky="w")
         self.tiles_hold_extra = tk.IntVar(value=0)
-        self.tiles_hold_extra_label = ctk.CTkLabel(he_row, text="0", font=self.f_value,
-                                                   text_color=ACCENT)
-        self.tiles_hold_extra_label.grid(row=0, column=1, sticky="e")
-        ctk.CTkSlider(
-            p, from_=0, to=40, number_of_steps=40, variable=self.tiles_hold_extra,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            progress_color=ACCENT, fg_color=FIELD, height=16,
-            command=lambda v: self.tiles_hold_extra_label.configure(text=f"{int(v)}"),
-        ).pack(fill="x", pady=(2, 8))
+        self._slider_group(c_he, "HOLD EXTRA", self.tiles_hold_extra,
+                           0, 40, 40, "tiles_hold_extra_label", 0)
 
-        # optional note/slide colour: detect bright/coloured notes & slides
+        # ── slide / note color ────────────────────────────────────────────
         nc_row = ctk.CTkFrame(p, fg_color="transparent")
-        nc_row.pack(fill="x", pady=(0, 8))
+        nc_row.pack(fill="x", pady=(4, 0))
         nc_row.columnconfigure(0, weight=1)
         ctk.CTkButton(
             nc_row, text="🎨  Pick slide / note color", font=self.f_sub,
             fg_color=FIELD, hover_color="#343846", text_color=TEXT,
             corner_radius=10, height=32, command=self._pick_note_color,
         ).grid(row=0, column=0, sticky="ew")
-        self.tiles_note_swatch = ctk.CTkLabel(nc_row, text="", width=32, height=32,
-                                              corner_radius=8, fg_color=FIELD)
-        self.tiles_note_swatch.grid(row=0, column=1, padx=(8, 0))
+        self.tiles_note_swatch = ctk.CTkLabel(
+            nc_row, text="", width=32, height=32,
+            corner_radius=8, fg_color=FIELD)
+        self.tiles_note_swatch.grid(row=0, column=1, padx=(6, 0))
         ctk.CTkButton(
             nc_row, text="✕", font=self.f_sub, fg_color=FIELD,
             hover_color="#343846", text_color=MUTED, corner_radius=8,
             width=32, height=32, command=self._clear_note_color,
-        ).grid(row=0, column=2, padx=(6, 0))
+        ).grid(row=0, column=2, padx=(4, 0))
         self.tiles_note_label = self._muted(
-            p, "optional: for bright notes / diagonal slides (off = dark tiles only)")
-        self.tiles_note_label.pack(anchor="w", pady=(0, 8))
+            p, "optional: bright notes / diagonal slides (off = dark tiles only)")
+        self.tiles_note_label.pack(anchor="w", pady=(3, 6))
 
-        # input backend: mouse (single finger) or keyboard (per-lane keys)
-        ctk.CTkLabel(p, text="INPUT", font=self.f_section,
-                     text_color=MUTED).pack(anchor="w", pady=(2, 0))
+        # ── INPUT header row — shares line with Fast capture switch ───────
+        inp_row = ctk.CTkFrame(p, fg_color="transparent")
+        inp_row.pack(fill="x")
+        inp_row.columnconfigure(0, weight=1)
+        ctk.CTkLabel(inp_row, text="INPUT", font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
+
+        fc_grp = ctk.CTkFrame(inp_row, fg_color="transparent")
+        fc_grp.grid(row=0, column=1, sticky="e")
+        ctk.CTkLabel(fc_grp, text="Fast capture", font=self.f_sub,
+                     text_color=TEXT).pack(side="left", padx=(0, 5))
+        self.tiles_fast = tk.BooleanVar(value=True)
+        ctk.CTkSwitch(
+            fc_grp, text="", variable=self.tiles_fast,
+            onvalue=True, offvalue=False,
+            progress_color=GREEN, button_color="#ffffff",
+            fg_color=FIELD, width=44,
+        ).pack(side="left")
+
         self.tiles_input = tk.StringVar(value="mouse")
         ctk.CTkSegmentedButton(
             p, values=["mouse", "keyboard"], variable=self.tiles_input,
@@ -278,21 +303,27 @@ class App:
             corner_radius=10, fg_color=FIELD, selected_color=ACCENT,
             selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
             unselected_hover_color="#343846",
-        ).pack(fill="x", pady=(6, 6))
+        ).pack(fill="x", pady=(5, 0))
 
-        # keyboard-only controls live in a frame so visibility toggles in place
+        self._muted(
+            p, "fast = low-latency (keep game on top); slow = overlap-proof"
+        ).pack(anchor="w", pady=(2, 0))
+
+        # keyboard-only controls — hidden until keyboard mode is selected.
+        # pack(before=self._tiles_preview_btn) inserts this frame just above
+        # the preview button when keyboard mode is active.
         self.tiles_kb_frame = ctk.CTkFrame(p, fg_color="transparent")
         self.tiles_keys = tk.StringVar(value="d, f, j, k")
         ctk.CTkEntry(
             self.tiles_kb_frame, textvariable=self.tiles_keys, font=self.f_label,
             fg_color=FIELD, border_width=0, corner_radius=10, height=34,
             justify="center", placeholder_text="lane keys, e.g. d, f, j, k",
-        ).pack(fill="x")
+        ).pack(fill="x", pady=(6, 0))
         self._muted(
             self.tiles_kb_frame,
-            "map these keys to the lanes in LDPlayer.\n"
-            "holds multiple keys -> 2+ long tiles at once.",
-        ).pack(anchor="w", pady=(4, 0))
+            "map these keys to lanes in LDPlayer.\n"
+            "holds multiple keys → 2+ long tiles at once.",
+        ).pack(anchor="w", pady=(3, 0))
         self.tiles_start_key = tk.StringVar(value="f")
         ctk.CTkEntry(
             self.tiles_kb_frame, textvariable=self.tiles_start_key, font=self.f_label,
@@ -302,31 +333,19 @@ class App:
         self._muted(
             self.tiles_kb_frame,
             "key to start a song (map to START in LDPlayer).\n"
-            "keeps the mouse off the game. empty = click instead.",
-        ).pack(anchor="w", pady=(4, 0))
+            "empty = click instead.",
+        ).pack(anchor="w", pady=(3, 0))
 
-        # default = reliable PrintWindow (overlap-proof). Toggle ON for faster
-        # BitBlt capture (only if the game stays uncovered on top).
-        ovl = ctk.CTkFrame(p, fg_color="transparent")
-        ovl.pack(fill="x", pady=(8, 0))
-        ovl.columnconfigure(0, weight=1)
-        ctk.CTkLabel(ovl, text="Fast capture", font=self.f_sub,
-                     text_color=TEXT).grid(row=0, column=0, sticky="w")
-        self._muted(ovl, "on = fast/low-latency (keep game uncovered on top)").grid(
-            row=1, column=0, sticky="w")
-        self.tiles_fast = tk.BooleanVar(value=True)  # default fast (needed to keep up)
-        ctk.CTkSwitch(
-            ovl, text="", variable=self.tiles_fast, onvalue=True, offvalue=False,
-            progress_color=GREEN, button_color="#ffffff", fg_color=FIELD, width=48,
-        ).grid(row=0, column=1, rowspan=2, sticky="e")
-
+        # preview button — must be created after tiles_kb_frame so that
+        # pack(before=self._tiles_preview_btn) works correctly.
         self._tiles_preview_btn = ctk.CTkButton(
             p, text="◎  Preview lanes / hit line", font=self.f_sub,
             fg_color=FIELD, hover_color="#343846", text_color=TEXT,
             corner_radius=10, height=32, command=self._preview_tiles,
         )
         self._tiles_preview_btn.pack(fill="x", pady=(8, 0))
-        # kb frame sits between the segmented button and the preview button
+
+        # initial state: mouse mode — hide keyboard frame
         self._on_tiles_input("mouse")
 
     def _pick_note_color(self) -> None:
@@ -343,7 +362,7 @@ class App:
         self.tiles_note_bgr = None
         self.tiles_note_swatch.configure(fg_color=FIELD)
         self.tiles_note_label.configure(
-            text="optional: for bright notes / diagonal slides (off = dark tiles only)")
+            text="optional: bright notes / diagonal slides (off = dark tiles only)")
 
     def _on_tiles_input(self, choice: str) -> None:
         """Show the key field only for the keyboard backend."""
@@ -734,7 +753,8 @@ class App:
         self._focus_target()  # raise the game window so clicks land on it
         self.bot = BotEngine(config, on_status=self._set_status)
         self.bot.start()
-        self.toggle_btn.configure(text="■   Stop", fg_color=RED, hover_color=RED_HOVER)
+        self.toggle_btn.configure(text="■   Stop", fg_color=RED,
+                                  hover_color=RED_HOVER)
 
     def _stop_bot(self) -> None:
         if self.bot:
