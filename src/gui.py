@@ -227,7 +227,7 @@ class App:
             "map these keys to lanes in LDPlayer.\n"
             "holds multiple keys → 2+ long tiles at once.",
         ).pack(anchor="w", pady=(3, 0))
-        self.tiles_start_key = tk.StringVar(value="f")
+        self.tiles_start_key = tk.StringVar(value="g")
         ctk.CTkEntry(
             self.tiles_kb_frame, textvariable=self.tiles_start_key, font=self.f_label,
             fg_color=FIELD, border_width=0, corner_radius=10, height=34,
