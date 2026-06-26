@@ -47,8 +47,8 @@ class BotConfig:
     # region is window-local. window_method: "bitblt" (fast) keeps the window
     # visible; "printwindow" (slower) is immune to other apps overlapping it.
     target_hwnd: int | None = None
-    window_method: str = "bitblt"  # fast default (game is foreground during play);
-                                   # "printwindow" = slower but capture while covered
+    window_method: str = "printwindow"  # reliable default (overlap-proof, ~65fps);
+                                        # "bitblt" = ~6x faster but needs game on top
     # helper templates clicked on sight (e.g. retry / start buttons between songs)
     tiles_helpers: list[str] = field(default_factory=list)
     tiles_helper_threshold: float = 0.8
@@ -69,6 +69,27 @@ def tiles_dark_lanes(means: list[float], margin: float) -> list[bool]:
     """
     bg = sorted(means)[len(means) // 2]
     return [m < bg - margin for m in means]
+
+
+def tiles_dark_frac(
+    lane_bands: list, margin: float, min_frac: float = 0.25
+) -> list[bool]:
+    """A lane has a tile when enough of its band is darker than the background.
+
+    `lane_bands` is one 2D grayscale array per lane (the hit band sampled from
+    the strip). Background brightness = the upper-middle lane mean (so a note
+    covering up to half the lanes doesn't drag it down). A lane counts as a tile
+    when the fraction of pixels darker than `bg - margin` exceeds `min_frac`.
+
+    Using a *fraction over a tall band* (rather than the band mean) makes the
+    hold robust to a note's light centre guide-line/dots, and — because the band
+    spans from the lead point down to the hit line — keeps the hold until the
+    note actually clears the line (fixes long notes releasing early).
+    """
+    means = sorted(float(b.mean()) for b in lane_bands)
+    bg = means[len(means) // 2]
+    thr = bg - margin
+    return [float((b < thr).mean()) > min_frac for b in lane_bands]
 
 
 def tiles_should_release(

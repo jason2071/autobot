@@ -413,18 +413,18 @@ class App:
             "holds multiple keys -> 2+ long tiles at once.",
         ).pack(anchor="w", pady=(4, 0))
 
-        # default = fast BitBlt (game is on top while playing). Toggle ON only to
-        # capture while another app covers the game (slower PrintWindow).
+        # default = reliable PrintWindow (overlap-proof). Toggle ON for faster
+        # BitBlt capture (only if the game stays uncovered on top).
         ovl = ctk.CTkFrame(p, fg_color="transparent")
         ovl.pack(fill="x", pady=(8, 0))
         ovl.columnconfigure(0, weight=1)
-        ctk.CTkLabel(ovl, text="Capture while covered", font=self.f_sub,
+        ctk.CTkLabel(ovl, text="Fast capture", font=self.f_sub,
                      text_color=TEXT).grid(row=0, column=0, sticky="w")
-        self._muted(ovl, "slower; off = fast (keep game on top)").grid(
+        self._muted(ovl, "~6x faster, but keep game uncovered on top").grid(
             row=1, column=0, sticky="w")
-        self.tiles_covered = tk.BooleanVar(value=False)
+        self.tiles_fast = tk.BooleanVar(value=False)
         ctk.CTkSwitch(
-            ovl, text="", variable=self.tiles_covered, onvalue=True, offvalue=False,
+            ovl, text="", variable=self.tiles_fast, onvalue=True, offvalue=False,
             progress_color=GREEN, button_color="#ffffff", fg_color=FIELD, width=48,
         ).grid(row=0, column=1, rowspan=2, sticky="e")
 
@@ -459,7 +459,7 @@ class App:
             return
         if self.target_hwnd is not None:  # capture the window directly
             from .window_capture import WindowCapture
-            method = "printwindow" if self.tiles_covered.get() else "bitblt"
+            method = "bitblt" if self.tiles_fast.get() else "printwindow"
             if method == "bitblt":  # BitBlt reads on-screen pixels -> raise it
                 self._focus_target()
                 time.sleep(0.15)  # let it come to front before grabbing
@@ -802,7 +802,7 @@ class App:
             tiles_keys=self._parse_keys(),
             tiles_helpers=self._helper_templates() if mode == "tiles" else [],
             target_hwnd=self.target_hwnd if mode == "tiles" else None,
-            window_method="printwindow" if self.tiles_covered.get() else "bitblt",
+            window_method="bitblt" if self.tiles_fast.get() else "printwindow",
         )
 
     def _parse_keys(self) -> list[str]:

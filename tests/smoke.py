@@ -65,15 +65,17 @@ def test_clicker_scale() -> None:
     )
 
 
-def _lane_darks(img, lanes=4, hit=0.80, sample_h=8, margin=40):
+def _lane_darks(img, lanes=4, hit=0.80, sample_h=18, lead=12, margin=40):
     """Replicate the bot's per-lane sampling for a frame, return dark flags.
 
-    Uses the same auto lane geometry the bot uses at runtime.
+    Mirrors the runtime path: a thin band `lead` px above the hit line, mean
+    brightness per lane vs the lane median.
     """
     h = img.shape[0]
     _centers, bands = bot.tiles_lane_geometry(img, lanes)
     hy = int(h * hit)
-    strip = img[hy - sample_h // 2: hy + sample_h // 2]
+    top = hy - lead - sample_h // 2
+    strip = img[top: top + sample_h]
     means = [float(strip[:, x0:x1].mean()) for x0, x1 in bands]
     return bot.tiles_dark_lanes(means, margin)
 
@@ -93,7 +95,16 @@ def test_tiles_logic() -> None:
 
     # relative darkness: a blue tile (mean 90) among bright lanes is still a tile
     assert bot.tiles_dark_lanes([152, 90, 130, 158], 40) == [False, True, False, False]
-    print("  tiles state machine + relative darkness OK")
+
+    # dark-fraction detector: a band that is mostly dark (a tile) vs a bright
+    # band (background) vs a mostly-bright band with a thin dark guide line.
+    bg = np.full((20, 30), 200, np.uint8)
+    tile = np.full((20, 30), 20, np.uint8)
+    guide = bg.copy(); guide[:, 14:16] = 20  # thin dark line on a bright lane
+    assert bot.tiles_dark_frac([tile, bg, bg, bg], 40) == [True, False, False, False]
+    # the thin guide line must NOT read as a tile (robust hold past centre lines)
+    assert bot.tiles_dark_frac([guide, bg, bg, bg], 40) == [False, False, False, False]
+    print("  tiles state machine + relative darkness + dark-fraction OK")
 
 
 def test_tiles_keyboard_multihold() -> None:
