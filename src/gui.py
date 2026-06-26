@@ -107,12 +107,12 @@ class App:
 
     # --- layout ---------------------------------------------------------------
     def _build(self) -> None:
-        self.root.geometry("420x560")
+        self.root.geometry("720x480")
 
         outer = ctk.CTkFrame(self.root, fg_color="transparent")
-        outer.pack(padx=14, pady=14, fill="both", expand=True)
+        outer.pack(padx=16, pady=14, fill="both", expand=True)
 
-        # ── header ────────────────────────────────────────────────────────────
+        # ── header (full width) ───────────────────────────────────────────
         head = ctk.CTkFrame(outer, fg_color="transparent")
         head.pack(fill="x")
         ctk.CTkLabel(head, text="🎯", font=ctk.CTkFont(size=24)).pack(side="left")
@@ -123,52 +123,29 @@ class App:
         ctk.CTkLabel(htext, text="Magic Tiles 3 autoplay",
                      font=self.f_sub, text_color=MUTED).pack(anchor="w")
 
-        # ── settings card with scrollable content ─────────────────────────
+        # ── settings card — two-column layout, no scroll ──────────────────
         card = ctk.CTkFrame(outer, fg_color=CARD, corner_radius=16)
         card.pack(fill="both", expand=True, pady=(12, 0))
+        # col 0 = left, col 1 = thin separator, col 2 = right
+        card.columnconfigure(0, weight=1, uniform="col")
+        card.columnconfigure(1, weight=0)
+        card.columnconfigure(2, weight=1, uniform="col")
+        card.rowconfigure(0, weight=1)
 
-        scroll = ctk.CTkScrollableFrame(
-            card, fg_color="transparent",
-            scrollbar_button_color=FIELD,
-            scrollbar_button_hover_color="#343846",
-        )
-        scroll.pack(fill="both", expand=True, padx=14, pady=10)
+        left = ctk.CTkFrame(card, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="nsew", padx=(16, 10), pady=12)
 
-        # tiles is the only mode
+        ctk.CTkFrame(card, fg_color=FIELD, width=1,
+                     corner_radius=0).grid(row=0, column=1, sticky="ns", pady=8)
+
+        right = ctk.CTkFrame(card, fg_color="transparent")
+        right.grid(row=0, column=2, sticky="nsew", padx=(10, 16), pady=12)
+
+        # tiles is the only mode — build both columns
         self.panels: dict[str, ctk.CTkFrame] = {}
-        self._build_tiles_panel(scroll)
-        self.panels["tiles"].pack(fill="x")
+        self._build_tiles_panel(left, right)
 
-        # ── TARGET ────────────────────────────────────────────────────────
-        target_hdr = ctk.CTkFrame(scroll, fg_color="transparent")
-        target_hdr.pack(fill="x", pady=(10, 0))
-        target_hdr.columnconfigure(0, weight=1)
-        ctk.CTkLabel(target_hdr, text="TARGET", font=self.f_section,
-                     text_color=MUTED).grid(row=0, column=0, sticky="w")
-        ctk.CTkButton(
-            target_hdr, text="↺  Refresh", font=self.f_sub, fg_color=FIELD,
-            hover_color="#343846", text_color=TEXT, corner_radius=8,
-            height=24, width=80, command=self._refresh_windows,
-        ).grid(row=0, column=1, sticky="e")
-        self.window_choice = tk.StringVar(value="Full screen")
-        self.window_menu = ctk.CTkOptionMenu(
-            scroll, variable=self.window_choice, values=["Full screen"],
-            font=self.f_label, fg_color=FIELD, button_color=FIELD,
-            button_hover_color="#343846", corner_radius=10, height=34,
-            command=self._on_window_pick,
-        )
-        self.window_menu.pack(fill="x", pady=(4, 4))
-
-        self.region = tk.StringVar(value="")
-        ctk.CTkEntry(
-            scroll, textvariable=self.region, font=self.f_value,
-            placeholder_text="top, left, width, height",
-            fg_color=FIELD, border_width=0, corner_radius=10,
-            height=34, justify="center",
-        ).pack(fill="x", pady=(4, 2))
-        self._refresh_windows()
-
-        # ── Start / Stop (outside scroll — always visible) ────────────────
+        # ── Start / Stop — full width, always visible below card ──────────
         self.toggle_btn = ctk.CTkButton(
             outer, text="▶   Start", font=self.f_btn, fg_color=GREEN,
             hover_color=GREEN_HOVER, text_color="#ffffff", corner_radius=12,
@@ -186,59 +163,46 @@ class App:
         ctk.CTkLabel(status_row, textvariable=self.status, font=self.f_sub,
                      text_color=MUTED).pack(side="left", padx=(4, 0))
 
-    # --- detection panel ------------------------------------------------------
-    def _build_tiles_panel(self, host) -> None:
-        p = ctk.CTkFrame(host, fg_color="transparent")
-        self.panels["tiles"] = p
+    # --- detection panel (two columns: left = target+input, right = sliders+color) ---
+    def _build_tiles_panel(self, left, right) -> None:
+        # panels["tiles"] tracks the primary column; attribute must exist.
+        self.panels["tiles"] = left
 
-        # ── HIT LINE % — calibration-critical, full width ─────────────────
-        self.tiles_hit = tk.IntVar(value=80)
-        self._slider_group(p, "HIT LINE %", self.tiles_hit,
-                           50, 98, 48, "tiles_hit_label", 80)
+        # ══════════════ LEFT COLUMN — TARGET + INPUT ══════════════════════
 
-        # ── CONTRAST | HOLD EXTRA — secondary tuning, 2-col ──────────────
-        sg = ctk.CTkFrame(p, fg_color="transparent")
-        sg.pack(fill="x", pady=(8, 0))
-        sg.columnconfigure((0, 1), weight=1, uniform="sl")
-
-        c_ctr = ctk.CTkFrame(sg, fg_color="transparent")
-        c_ctr.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-
-        c_he = ctk.CTkFrame(sg, fg_color="transparent")
-        c_he.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
-
-        self.tiles_margin = tk.IntVar(value=40)
-        self._slider_group(c_ctr, "CONTRAST", self.tiles_margin,
-                           15, 120, 105, "tiles_margin_label", 40)
-
-        self.tiles_hold_extra = tk.IntVar(value=0)
-        self._slider_group(c_he, "HOLD EXTRA", self.tiles_hold_extra,
-                           0, 40, 40, "tiles_hold_extra_label", 0)
-
-        # ── slide / note color ────────────────────────────────────────────
-        nc_row = ctk.CTkFrame(p, fg_color="transparent")
-        nc_row.pack(fill="x", pady=(8, 0))
-        nc_row.columnconfigure(0, weight=1)
+        # ── TARGET ────────────────────────────────────────────────────────
+        target_hdr = ctk.CTkFrame(left, fg_color="transparent")
+        target_hdr.pack(fill="x")
+        target_hdr.columnconfigure(0, weight=1)
+        ctk.CTkLabel(target_hdr, text="TARGET", font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
         ctk.CTkButton(
-            nc_row, text="🎨  Pick slide / note color", font=self.f_sub,
-            fg_color=FIELD, hover_color="#343846", text_color=TEXT,
-            corner_radius=10, height=32, command=self._pick_note_color,
-        ).grid(row=0, column=0, sticky="ew")
-        self.tiles_note_swatch = ctk.CTkLabel(
-            nc_row, text="", width=32, height=32,
-            corner_radius=8, fg_color=FIELD)
-        self.tiles_note_swatch.grid(row=0, column=1, padx=(6, 0))
-        ctk.CTkButton(
-            nc_row, text="✕", font=self.f_sub, fg_color=FIELD,
-            hover_color="#343846", text_color=MUTED, corner_radius=8,
-            width=32, height=32, command=self._clear_note_color,
-        ).grid(row=0, column=2, padx=(4, 0))
-        self.tiles_note_label = self._muted(
-            p, "optional: bright notes / diagonal slides (off = dark tiles only)")
-        self.tiles_note_label.pack(anchor="w", pady=(3, 6))
+            target_hdr, text="↺  Refresh", font=self.f_sub, fg_color=FIELD,
+            hover_color="#343846", text_color=TEXT, corner_radius=8,
+            height=24, width=80, command=self._refresh_windows,
+        ).grid(row=0, column=1, sticky="e")
+
+        self.window_choice = tk.StringVar(value="Full screen")
+        self.window_menu = ctk.CTkOptionMenu(
+            left, variable=self.window_choice, values=["Full screen"],
+            font=self.f_label, fg_color=FIELD, button_color=FIELD,
+            button_hover_color="#343846", corner_radius=10, height=34,
+            command=self._on_window_pick,
+        )
+        self.window_menu.pack(fill="x", pady=(4, 4))
+
+        self.region = tk.StringVar(value="")
+        ctk.CTkEntry(
+            left, textvariable=self.region, font=self.f_value,
+            placeholder_text="top, left, width, height",
+            fg_color=FIELD, border_width=0, corner_radius=10,
+            height=34, justify="center",
+        ).pack(fill="x", pady=(0, 10))
+
+        self._refresh_windows()
 
         # ── INPUT header row — shares line with Fast capture switch ───────
-        inp_row = ctk.CTkFrame(p, fg_color="transparent")
+        inp_row = ctk.CTkFrame(left, fg_color="transparent")
         inp_row.pack(fill="x")
         inp_row.columnconfigure(0, weight=1)
         ctk.CTkLabel(inp_row, text="INPUT", font=self.f_section,
@@ -258,7 +222,7 @@ class App:
 
         self.tiles_input = tk.StringVar(value="mouse")
         ctk.CTkSegmentedButton(
-            p, values=["mouse", "keyboard"], variable=self.tiles_input,
+            left, values=["mouse", "keyboard"], variable=self.tiles_input,
             command=self._on_tiles_input, font=self.f_label, height=34,
             corner_radius=10, fg_color=FIELD, selected_color=ACCENT,
             selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
@@ -266,9 +230,8 @@ class App:
         ).pack(fill="x", pady=(5, 0))
 
         # keyboard-only controls — hidden until keyboard mode is selected.
-        # pack(before=self._tiles_preview_btn) inserts this frame just above
-        # the preview button when keyboard mode is active.
-        self.tiles_kb_frame = ctk.CTkFrame(p, fg_color="transparent")
+        # Lives at the bottom of the left column; pack/pack_forget toggles it.
+        self.tiles_kb_frame = ctk.CTkFrame(left, fg_color="transparent")
         self.tiles_keys = tk.StringVar(value="d, f, j, k")
         ctk.CTkEntry(
             self.tiles_kb_frame, textvariable=self.tiles_keys, font=self.f_label,
@@ -292,16 +255,64 @@ class App:
             "empty = click instead.",
         ).pack(anchor="w", pady=(3, 0))
 
-        # preview button — must be created after tiles_kb_frame so that
-        # pack(before=self._tiles_preview_btn) works correctly.
+        # ══════════════ RIGHT COLUMN — SLIDERS + COLOR + PREVIEW ══════════
+
+        # ── HIT LINE % — calibration-critical ─────────────────────────────
+        self.tiles_hit = tk.IntVar(value=80)
+        self._slider_group(right, "HIT LINE %", self.tiles_hit,
+                           50, 98, 48, "tiles_hit_label", 80)
+
+        # ── CONTRAST | HOLD EXTRA — side by side ──────────────────────────
+        sg = ctk.CTkFrame(right, fg_color="transparent")
+        sg.pack(fill="x", pady=(10, 0))
+        sg.columnconfigure((0, 1), weight=1, uniform="sl")
+
+        c_ctr = ctk.CTkFrame(sg, fg_color="transparent")
+        c_ctr.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+
+        c_he = ctk.CTkFrame(sg, fg_color="transparent")
+        c_he.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+
+        self.tiles_margin = tk.IntVar(value=40)
+        self._slider_group(c_ctr, "CONTRAST", self.tiles_margin,
+                           15, 120, 105, "tiles_margin_label", 40)
+
+        self.tiles_hold_extra = tk.IntVar(value=0)
+        self._slider_group(c_he, "HOLD EXTRA", self.tiles_hold_extra,
+                           0, 40, 40, "tiles_hold_extra_label", 0)
+
+        # ── slide / note color ────────────────────────────────────────────
+        nc_row = ctk.CTkFrame(right, fg_color="transparent")
+        nc_row.pack(fill="x", pady=(10, 0))
+        nc_row.columnconfigure(0, weight=1)
+        ctk.CTkButton(
+            nc_row, text="🎨  Pick slide / note color", font=self.f_sub,
+            fg_color=FIELD, hover_color="#343846", text_color=TEXT,
+            corner_radius=10, height=32, command=self._pick_note_color,
+        ).grid(row=0, column=0, sticky="ew")
+        self.tiles_note_swatch = ctk.CTkLabel(
+            nc_row, text="", width=32, height=32,
+            corner_radius=8, fg_color=FIELD)
+        self.tiles_note_swatch.grid(row=0, column=1, padx=(6, 0))
+        ctk.CTkButton(
+            nc_row, text="✕", font=self.f_sub, fg_color=FIELD,
+            hover_color="#343846", text_color=MUTED, corner_radius=8,
+            width=32, height=32, command=self._clear_note_color,
+        ).grid(row=0, column=2, padx=(4, 0))
+        self.tiles_note_label = self._muted(
+            right, "optional: bright notes / diagonal slides (off = dark tiles only)")
+        self.tiles_note_label.pack(anchor="w", pady=(3, 6))
+
+        # ── preview button ────────────────────────────────────────────────
+        # _tiles_preview_btn attribute kept for external reference consistency.
         self._tiles_preview_btn = ctk.CTkButton(
-            p, text="◎  Preview lanes / hit line", font=self.f_sub,
+            right, text="◎  Preview lanes / hit line", font=self.f_sub,
             fg_color=FIELD, hover_color="#343846", text_color=TEXT,
             corner_radius=10, height=32, command=self._preview_tiles,
         )
-        self._tiles_preview_btn.pack(fill="x", pady=(8, 0))
+        self._tiles_preview_btn.pack(fill="x", pady=(4, 0))
 
-        # initial state: mouse mode — hide keyboard frame
+        # initial state: mouse mode — keyboard frame hidden
         self._on_tiles_input("mouse")
 
     def _pick_note_color(self) -> None:
@@ -321,10 +332,14 @@ class App:
             text="optional: bright notes / diagonal slides (off = dark tiles only)")
 
     def _on_tiles_input(self, choice: str) -> None:
-        """Show the key field only for the keyboard backend."""
+        """Show the key fields only for the keyboard backend.
+
+        tiles_kb_frame lives at the bottom of the left column; pack_forget/pack
+        toggles its visibility. No before= needed — _tiles_preview_btn is in
+        the right column and the two are independent.
+        """
         if choice == "keyboard":
-            self.tiles_kb_frame.pack(fill="x", pady=(0, 4),
-                                     before=self._tiles_preview_btn)
+            self.tiles_kb_frame.pack(fill="x", pady=(6, 0))
         else:
             self.tiles_kb_frame.pack_forget()
 
