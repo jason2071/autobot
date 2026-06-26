@@ -6,9 +6,13 @@ No real clicks are performed.
 
 from __future__ import annotations
 
+import glob
+import os
+
+import cv2
 import numpy as np
 
-from src import detector, clicker
+from src import detector, clicker, bot
 from src.capture import ScreenCapture
 
 
@@ -61,11 +65,135 @@ def test_clicker_scale() -> None:
     )
 
 
+def _lane_darks(img, lanes=4, hit=0.80, sample_h=8, margin=40):
+    """Replicate the bot's per-lane sampling for a frame, return dark flags.
+
+    Uses the same auto lane geometry the bot uses at runtime.
+    """
+    h = img.shape[0]
+    _centers, bands = bot.tiles_lane_geometry(img, lanes)
+    hy = int(h * hit)
+    strip = img[hy - sample_h // 2: hy + sample_h // 2]
+    means = [float(strip[:, x0:x1].mean()) for x0, x1 in bands]
+    return bot.tiles_dark_lanes(means, margin)
+
+
+def test_tiles_logic() -> None:
+    # state machine: rising-edge press, falling-edge release, max-hold cap
+    assert bot.tiles_rising([False, False], [False, True]) == [1], "rising edge"
+    assert bot.tiles_rising([True, False], [True, False]) == [], "no new edge"
+    assert bot.tiles_rising([True, True], [True, True]) == [], "primed dark"
+    assert bot.tiles_rising([False, False, False, False],
+                            [True, False, True, False]) == [0, 2], "chord"
+
+    assert bot.tiles_should_release(0, [False], 0.0, 0.01, 1.5) is True, "falling"
+    assert bot.tiles_should_release(0, [True], 0.0, 0.01, 1.5) is False, "still held"
+    assert bot.tiles_should_release(0, [True], 0.0, 2.0, 1.5) is True, "max hold"
+    assert bot.tiles_should_release(None, [True], 0.0, 9.0, 1.5) is False, "nothing held"
+
+    # relative darkness: a blue tile (mean 90) among bright lanes is still a tile
+    assert bot.tiles_dark_lanes([152, 90, 130, 158], 40) == [False, True, False, False]
+    print("  tiles state machine + relative darkness OK")
+
+
+def test_tiles_keyboard_multihold() -> None:
+    # simulate two long tiles falling at once in lanes 0 and 2 (keyboard mode)
+    down = [False] * 4
+    since = [0.0] * 4
+    prev = [False] * 4
+    mh = 1.5
+
+    # frame 1: lanes 0 and 2 go dark together -> press both, hold both
+    dark = [True, False, True, False]
+    acts = bot.tiles_kb_step(prev, dark, down, since, 0.0, mh)
+    assert sorted(acts) == [("press", 0), ("press", 2)], acts
+    assert down == [True, False, True, False], "both keys held at once"
+    prev = dark
+
+    # frame 2..N: still dark -> no new actions, stays held (the multi-hold)
+    acts = bot.tiles_kb_step(prev, dark, down, since, 0.05, mh)
+    assert acts == [], "no churn while both held"
+    assert down == [True, False, True, False]
+    prev = dark
+
+    # lane 0 clears, lane 2 still long -> release only 0, keep holding 2
+    dark = [False, False, True, False]
+    acts = bot.tiles_kb_step(prev, dark, down, since, 0.10, mh)
+    assert acts == [("release", 0)], acts
+    assert down == [False, False, True, False]
+    prev = dark
+
+    # lane 2 clears -> release 2
+    dark = [False, False, False, False]
+    acts = bot.tiles_kb_step(prev, dark, down, since, 0.20, mh)
+    assert acts == [("release", 2)], acts
+    assert down == [False, False, False, False]
+
+    # max-hold safety: a stuck-dark lane is force-released
+    down = [True, False, False, False]
+    since = [0.0, 0, 0, 0]
+    acts = bot.tiles_kb_step([True, False, False, False], [True, False, False, False],
+                             down, since, 2.0, mh)
+    assert acts == [("release", 0)], acts
+    print("  keyboard multi-hold (2 long tiles at once) OK")
+
+
+def test_tiles_hysteresis() -> None:
+    # a long tile with a 2-frame bright flicker must NOT release (release_frames=3)
+    streak = [3]
+    assert bot.tiles_hysteresis([True], streak, 3) == [True]   # dark
+    assert bot.tiles_hysteresis([False], streak, 3) == [True]  # 1 light, still held
+    assert bot.tiles_hysteresis([False], streak, 3) == [True]  # 2 light, still held
+    assert bot.tiles_hysteresis([True], streak, 3) == [True]   # dark again -> reset
+    assert bot.tiles_hysteresis([False], streak, 3) == [True]
+    assert bot.tiles_hysteresis([False], streak, 3) == [True]
+    assert bot.tiles_hysteresis([False], streak, 3) == [False]  # 3 light -> release
+    print("  release debounce (long-tile flicker) OK")
+
+
+def test_tiles_on_screenshots() -> None:
+    shots = sorted(glob.glob("templates/**/Screenshot*.png", recursive=True))
+    if not shots:
+        print("  (no Magic Tiles screenshots — skipped)")
+        return
+    for path in shots:
+        img = cv2.imread(path)
+        dark = _lane_darks(img)
+        n = sum(dark)
+        # each captured frame has at least one tile crossing the hit band
+        assert 1 <= n <= 3, f"{os.path.basename(path)}: {n} dark lanes {dark}"
+        print(f"  {os.path.basename(path)} -> dark lanes {dark}")
+
+
+def test_helper_templates() -> None:
+    helpers = [p for p in ("templates/retry.png", "templates/start.png")
+               if os.path.isfile(p)]
+    if not helpers:
+        print("  (no retry/start templates — skipped)")
+        return
+    for path in helpers:
+        tpl = detector.load_template(path)
+        # embed the template in a larger black scene and confirm we find it
+        th, tw = tpl.shape[:2]
+        scene = np.zeros((th + 80, tw + 80, 3), dtype=np.uint8)
+        scene[40:40 + th, 30:30 + tw] = tpl
+        hits = detector.match_template(scene, tpl, threshold=0.9)
+        assert hits, f"{os.path.basename(path)} not found in scene"
+        x, y, score = hits[0]
+        assert abs(x - (30 + tw // 2)) < 4 and abs(y - (40 + th // 2)) < 4
+        print(f"  {os.path.basename(path)} match OK -> ({x},{y}) score={score:.3f}")
+
+
 def main() -> None:
     for name, fn in [
         ("template/color", test_template_match),
         ("capture/region", test_capture_and_scale),
         ("clicker/scale", test_clicker_scale),
+        ("tiles/logic", test_tiles_logic),
+        ("tiles/kb-multihold", test_tiles_keyboard_multihold),
+        ("tiles/hysteresis", test_tiles_hysteresis),
+        ("tiles/screenshots", test_tiles_on_screenshots),
+        ("tiles/helpers", test_helper_templates),
     ]:
         print(f"[{name}]")
         fn()

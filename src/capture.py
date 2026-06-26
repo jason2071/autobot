@@ -18,7 +18,12 @@ class ScreenCapture:
 
     @property
     def primary_monitor(self) -> dict:
-        # monitors[0] is the virtual "all monitors" box; [1] is the primary.
+        # monitors[0] is the virtual "all monitors" box; [1:] are the physical
+        # displays. The first physical monitor is NOT always the primary one
+        # (multi-monitor setups), so prefer the display flagged is_primary.
+        for m in self._sct.monitors[1:]:
+            if m.get("is_primary"):
+                return m
         return self._sct.monitors[1]
 
     @property

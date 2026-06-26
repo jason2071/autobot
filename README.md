@@ -68,9 +68,17 @@ Administrator, run Python as Administrator too, otherwise clicks won't reach it.
   quick **tap**, a long tile → **hold** until it clears. Set **TARGET** to the
   play area, then **Lanes** (4), **Hit line** (% of height where you tap), and
   **Contrast** (how much darker a tile is than the lane background — relative,
-  so it works on any skin: black, blue, etc.). Press **◎ Preview lanes** to
-  check the lane points + hit line before starting. Foreground only (it needs
-  the real cursor to hold), single pointer = one tile at a time.
+  so it works on any skin: black, blue, etc.). The lane columns are
+  **auto-detected** from the board edges (side margins won't shift them); press
+  **◎ Preview lanes** to verify. Two **INPUT** backends:
+  - **mouse** — one real cursor. Handles one tile/hold at a time; chords (tiles
+    in the same row) are quick-tapped. No two simultaneous holds.
+  - **keyboard** — one key per lane, mapped to the lanes in LDPlayer's keyboard
+    settings (e.g. `d f j k`). Each lane is independent, so **multiple long
+    tiles / chords hold at once**. This is the way to support 2+ simultaneous
+    holds. Set the lane keys in the GUI to match your LDPlayer mapping.
+
+  Stop with **Esc** at any time (works even while inputs are held).
 
 | mode | knows position? | scans | best for |
 |------|-----------------|-------|----------|
@@ -90,6 +98,23 @@ You don't have to scan the whole screen. Three options:
 Both fill the **region** field (`top,left,width,height` in physical px), which
 you can edit by hand. Empty = full screen. Retina coordinates are scaled
 automatically.
+
+**Picking a window binds to that window.** On Windows, choosing a window from
+the dropdown captures it directly (works on GPU surfaces like the LDPlayer
+emulator). The region becomes **window-local** (`0,0,width,height` = whole
+window); trim it to the play area by hand. Drag-area and Full screen still use
+plain screen capture. (Window capture currently applies to **tiles** mode.)
+
+Two capture methods (tiles panel toggle **Capture while covered**):
+- off (default) — **BitBlt**, ~400 fps. Low latency, so taps keep up with fast
+  songs. Reads the window's *on-screen* pixels, so the game must stay on top
+  (it always is while playing, since clicks/keys go to the focused window).
+- on — **PrintWindow**, ~65 fps, but **immune to other apps overlapping** the
+  window (renders it even when covered). Slower; use only if you must cover the
+  game (e.g. observe-only while doing something else).
+
+Taps fire a few px **above** the hit line (`tiles_lead`, default 12) to beat the
+capture + input latency, so fast tiles aren't tapped late.
 
 ### Background click
 With **Background click** on, the bot posts the click directly to the window

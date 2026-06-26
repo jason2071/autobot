@@ -30,6 +30,7 @@ _MIN_SIDE = 40  # ignore tiny utility windows
 class Window:
     title: str
     bounds: dict  # {"top","left","width","height"} in logical points
+    hwnd: int | None = None  # Win32 window handle (None on macOS)
 
 
 def _mac_windows() -> list[Window]:
@@ -76,7 +77,8 @@ def _win_windows() -> list[Window]:
         if w < _MIN_SIDE or h < _MIN_SIDE:
             return
         out.append(
-            Window(title=title, bounds={"top": top, "left": left, "width": w, "height": h})
+            Window(title=title, bounds={"top": top, "left": left, "width": w, "height": h},
+                   hwnd=hwnd)
         )
 
     win32gui.EnumWindows(cb, None)
@@ -90,3 +92,48 @@ def list_windows() -> list[Window]:
     if sys.platform.startswith("win") and _HAS_WIN32:
         return _win_windows()
     return []
+
+
+def focus_window(title: str) -> bool:
+    """Bring the window with this exact title to the foreground. Best effort;
+    returns True if it found and raised the window."""
+    if sys.platform.startswith("win") and _HAS_WIN32:
+        import win32con  # type: ignore
+
+        target = []
+
+        def cb(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == title:
+                target.append(hwnd)
+
+        win32gui.EnumWindows(cb, None)
+        if not target:
+            return False
+        hwnd = target[0]
+        try:
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.SetForegroundWindow(hwnd)
+        except Exception:
+            try:
+                win32gui.BringWindowToTop(hwnd)
+            except Exception:
+                return False
+        return True
+
+    if sys.platform == "darwin":
+        # title is "Owner — Name"; activate the owning app via AppleScript.
+        owner = title.split(" — ", 1)[0].strip()
+        if not owner:
+            return False
+        import subprocess
+
+        try:
+            subprocess.run(
+                ["osascript", "-e", f'tell application "{owner}" to activate'],
+                check=False, capture_output=True, timeout=2,
+            )
+            return True
+        except Exception:
+            return False
+
+    return False

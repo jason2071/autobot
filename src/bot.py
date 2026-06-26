@@ -33,15 +33,152 @@ class BotConfig:
     # a lane has a tile when its brightness is this far BELOW the lane median
     # (relative, so it works for any skin: black, blue, etc.)
     tiles_margin: int = 40
-    tiles_sample_h: int = 8      # height (px) of the strip sampled at the hit line
-    tiles_poll: float = 0.006    # seconds between scans (fast)
-    tiles_max_hold: float = 1.5  # force-release a hold after this many seconds
+    tiles_sample_h: int = 18     # taller strip = catches faster tiles between polls
+    tiles_lead: int = 12         # sample this many px ABOVE the hit line, so the
+                                 # press fires earlier and beats capture/input lag
+    tiles_poll: float = 0.001    # seconds between scans (fast; tiles speed up)
+    tiles_max_hold: float = 4.0  # force-release a hold after this many seconds
+    tiles_release_frames: int = 3  # frames of light before releasing (debounce)
+    # input backend: "mouse" (single finger) or "keyboard" (per-lane keys, so
+    # multiple long tiles / chords can be held at once via LDPlayer key mapping)
+    tiles_input: str = "mouse"
+    tiles_keys: list[str] = field(default_factory=lambda: ["d", "f", "j", "k"])
+    # when set, capture this window directly instead of a screen region.
+    # region is window-local. window_method: "bitblt" (fast) keeps the window
+    # visible; "printwindow" (slower) is immune to other apps overlapping it.
+    target_hwnd: int | None = None
+    window_method: str = "bitblt"  # fast default (game is foreground during play);
+                                   # "printwindow" = slower but capture while covered
+    # helper templates clicked on sight (e.g. retry / start buttons between songs)
+    tiles_helpers: list[str] = field(default_factory=list)
+    tiles_helper_threshold: float = 0.8
+    tiles_helper_interval: float = 0.3  # how often to scan for helper buttons
     min_click_interval: float = 0.3
     jitter: int = 0
     background: bool = False  # click without moving the real cursor (macOS)
 
 
 StatusCallback = Callable[[str], None]
+
+
+# --- tiles-mode pure logic (unit-testable, no I/O) ----------------------------
+def tiles_dark_lanes(means: list[float], margin: float) -> list[bool]:
+    """A lane has a tile when it is `margin` darker than the median lane.
+
+    Relative, so it works on any skin (black tiles, blue tiles, etc.).
+    """
+    bg = sorted(means)[len(means) // 2]
+    return [m < bg - margin for m in means]
+
+
+def tiles_should_release(
+    held: int | None, dark: list[bool], held_since: float, now: float, max_hold: float
+) -> bool:
+    """Release the pressed lane on a falling edge, or after the max hold time
+    (the latter guards against a permanently-dark region locking the button)."""
+    if held is None:
+        return False
+    return (not dark[held]) or (now - held_since > max_hold)
+
+
+def tiles_board_edges(frame: "np.ndarray") -> tuple[int, int] | None:
+    """Find the left/right edges of the play board via vertical-edge detection.
+
+    The lane dividers and board borders are persistent vertical lines; tiles
+    only add partial-height edges, so averaging |dx| over most of the height
+    makes the board borders the outermost strong peaks. Returns (left, right)
+    in frame-x, or None if detection is unreliable (caller falls back).
+    """
+    import cv2
+    import numpy as np
+
+    h, w = frame.shape[:2]
+    if w < 20 or h < 20:
+        return None
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(float)
+    band = gray[int(h * 0.12):int(h * 0.95)]
+    sx = np.abs(cv2.Sobel(band, cv2.CV_64F, 1, 0, ksize=3))
+    prof = sx.mean(axis=0)
+    th = prof.mean() + prof.std()
+    peaks = [
+        x for x in range(1, w - 1)
+        if prof[x] > th and prof[x] >= prof[x - 1] and prof[x] >= prof[x + 1]
+    ]
+    if len(peaks) < 2:
+        return None
+    left, right = peaks[0], peaks[-1]
+    # only trust detection when the outermost edges sit near the region borders
+    # (a real board fills the region). Otherwise (menus, start screen, decor)
+    # fall back to an even split so we don't lock onto a wrong inner box.
+    if left > w * 0.15 or right < w * 0.85:
+        return None
+    return left, right
+
+
+def tiles_lane_geometry(frame: "np.ndarray", lanes: int) -> tuple[list[float], list[tuple[int, int]]]:
+    """Lane center x's and per-lane sample bands (x0, x1), in frame-x.
+
+    Auto-detects the board edges so side margins don't shift the lanes; falls
+    back to an even split over the full width if detection is unreliable.
+    """
+    w = frame.shape[1]
+    edges = tiles_board_edges(frame)
+    left, right = edges if edges else (0, w)
+    span = (right - left) / lanes
+    centers = [left + (i + 0.5) * span for i in range(lanes)]
+    bands = [(int(left + (i + 0.25) * span), int(left + (i + 0.75) * span))
+             for i in range(lanes)]
+    return centers, bands
+
+
+def tiles_hysteresis(
+    raw_dark: list[bool], light_streak: list[int], release_frames: int
+) -> list[bool]:
+    """Debounce releases: a lane stays 'dark' until it has read light for
+    `release_frames` consecutive frames. Bridges brief bright streaks inside a
+    long tile (hold guide line, gradient) so the hold isn't dropped early.
+    Mutates `light_streak` in place; returns the debounced dark flags.
+    """
+    eff = []
+    for i, d in enumerate(raw_dark):
+        if d:
+            light_streak[i] = 0
+        else:
+            light_streak[i] += 1
+        eff.append(d or light_streak[i] < release_frames)
+    return eff
+
+
+def tiles_kb_step(
+    prev: list[bool], dark: list[bool], down: list[bool],
+    since: list[float], now: float, max_hold: float,
+) -> list[tuple[str, int]]:
+    """Per-lane keyboard state machine (independent lanes -> true multi-hold).
+
+    Mutates `down`/`since` in place and returns the ('press'|'release', lane)
+    actions to actuate. Each lane: release on a falling edge or after max_hold,
+    press on a light->dark rising edge. Lanes are independent, so two long
+    tiles in different lanes are held at the same time.
+    """
+    actions: list[tuple[str, int]] = []
+    for i in range(len(dark)):
+        if down[i] and (not dark[i] or now - since[i] > max_hold):
+            actions.append(("release", i))
+            down[i] = False
+        if dark[i] and not prev[i] and not down[i]:
+            actions.append(("press", i))
+            down[i] = True
+            since[i] = now
+    return actions
+
+
+def tiles_rising(prev: list[bool], dark: list[bool]) -> list[int]:
+    """Lanes with a light->dark RISING edge this frame (new tiles).
+
+    Edge-triggered so a region dark from the start never fires. A list (not a
+    single lane) so simultaneous tiles — chords — can all be handled.
+    """
+    return [i for i in range(len(dark)) if dark[i] and not prev[i]]
 
 
 class BotEngine:
@@ -154,14 +291,20 @@ class BotEngine:
 
     def _run_tiles(self, cap) -> None:
         """Magic Tiles 3 loop: watch N lanes at a hit line, press while a dark
-        tile covers it. A short tile -> brief press (tap); a long tile -> the
-        press is held until the tile clears (hold). Foreground (real cursor)
-        only — single pointer, so one tile at a time.
+        tile covers it. A short tile -> brief press (tap); a long tile -> a
+        sustained hold until the tile clears.
 
-        Safety: a press only fires on a light->dark EDGE (so a region that is
-        permanently dark never locks the button down), holds are force-released
-        after `tiles_max_hold`, and Esc stops the bot even while the mouse
-        button is held (the GUI Stop button is unclickable during a hold).
+        Two input backends:
+          - "mouse":    one real cursor; a single tile/hold at a time, chords
+                        are quick-tapped (no simultaneous holds).
+          - "keyboard": one key per lane (LDPlayer key mapping). Each lane is
+                        independent, so multiple long tiles / chords hold at
+                        once. This is the way to support 2+ simultaneous holds.
+
+        Safety: presses fire only on a light->dark EDGE (a permanently dark
+        region never sticks), holds force-release after `tiles_max_hold`, Esc
+        stops the bot even while inputs are held, and everything is released in
+        `finally`.
         """
         import pyautogui
 
@@ -171,21 +314,85 @@ class BotEngine:
         mon = cfg.region  # validated non-None for tiles mode
         lanes = max(1, cfg.tiles_lanes)
         scale = pyautogui.size().width / cap.primary_monitor["width"]
-        W, H = mon["width"], mon["height"]
+        H = mon["height"]
 
-        # strip of pixels sampled across the full width at the hit line
+        # capture source: a specific window (PrintWindow, overlap-proof) when a
+        # target hwnd is set, else the screen region (mss). For window capture
+        # `mon` is window-local and (ox, oy) maps it back to screen for clicks.
+        win = None
+        if cfg.target_hwnd:
+            from .window_capture import WindowCapture
+            win = WindowCapture(cfg.target_hwnd, cfg.window_method)
+        src_grab = win.grab if win else cap.grab
+        ox, oy = win.origin() if win else (0, 0)
+
+        # strip of pixels sampled `tiles_lead` px ABOVE the hit line, so a press
+        # fires before the tile reaches the line — compensates capture/input lag.
+        # The click/keypress position (ly below) stays on the true hit line.
         sh = max(2, cfg.tiles_sample_h)
         hit_y = mon["top"] + int(H * cfg.tiles_hit)
-        strip = {"top": hit_y - sh // 2, "left": mon["left"], "width": W, "height": sh}
+        strip = {"top": hit_y - cfg.tiles_lead - sh // 2, "left": mon["left"],
+                 "width": mon["width"], "height": sh}
 
-        # logical click point per lane (center x, hit-line y)
-        lx = [(mon["left"] + (i + 0.5) * W / lanes) * scale for i in range(lanes)]
-        ly = hit_y * scale
-        # x sample band per lane (center 50% of the lane, in strip-local coords)
-        bands = [(int((i + 0.25) * W / lanes), int((i + 0.75) * W / lanes))
-                 for i in range(lanes)]
+        # lane geometry: even split until the real board is confidently
+        # detected (edges near the region borders), then lock onto it. This way
+        # starting on a menu / start screen doesn't lock in a wrong layout.
+        ly = (oy + hit_y) * scale
+        centers, bands = tiles_lane_geometry(src_grab(mon), lanes)
+        lx = [(ox + mon["left"] + cx) * scale for cx in centers]
+        locked = tiles_board_edges(src_grab(mon)) is not None
 
-        # Esc = emergency stop (works while the mouse button is held down).
+        def _recalibrate(board) -> None:
+            nonlocal centers, bands, lx, locked
+            if tiles_board_edges(board) is None:
+                return
+            centers, bands = tiles_lane_geometry(board, lanes)
+            lx = [(ox + mon["left"] + cx) * scale for cx in centers]
+            locked = True
+
+        # --- per-lane actuator (mouse single-finger vs keyboard multi-key) ----
+        use_kb = cfg.tiles_input == "keyboard"
+        kb = None
+        keys = list(cfg.tiles_keys)
+        if use_kb:
+            try:
+                from pynput.keyboard import Controller
+                kb = Controller()
+            except Exception:
+                use_kb = False  # fall back to mouse if pynput missing
+
+        down = [False] * lanes          # which lanes are currently held
+        held_since = [0.0] * lanes
+
+        def press(i):
+            if use_kb:
+                kb.press(keys[i % len(keys)])
+            else:
+                pyautogui.mouseDown(lx[i], ly)
+
+        def release(i):
+            if use_kb:
+                kb.release(keys[i % len(keys)])
+            else:
+                pyautogui.mouseUp()
+
+        def tap(i):
+            if use_kb:
+                kb.press(keys[i % len(keys)])
+                kb.release(keys[i % len(keys)])
+            else:
+                pyautogui.click(lx[i], ly)
+
+        def release_all():
+            for i in range(lanes):
+                if down[i]:
+                    try:
+                        release(i)
+                    except Exception:
+                        pass
+                    down[i] = False
+
+        # Esc = emergency stop (works while inputs are held).
         listener = None
         try:
             from pynput import keyboard
@@ -193,7 +400,7 @@ class BotEngine:
             def _on_press(key):
                 if key == keyboard.Key.esc:
                     self._stop.set()
-                    return False  # stop the listener
+                    return False
 
             listener = keyboard.Listener(on_press=_on_press)
             listener.start()
@@ -201,46 +408,95 @@ class BotEngine:
             listener = None
 
         def _read_dark():
-            frame = cap.grab(strip)  # (sh, W, 3) BGR
+            frame = src_grab(strip)
             means = [float(frame[:, x0:x1].mean()) for x0, x1 in bands]
-            bg = sorted(means)[len(means) // 2]  # median lane = background
-            return [m < bg - cfg.tiles_margin for m in means]
+            return tiles_dark_lanes(means, cfg.tiles_margin)
 
-        # prime: a lane already dark at start (UI element, etc.) must NOT fire;
-        # only a fresh light->dark transition counts as a new tile.
+        # helper buttons (start, etc.) clicked on sight between songs
+        helpers = []
+        for path in cfg.tiles_helpers:
+            try:
+                helpers.append((path, detector.load_template(path)))
+            except ValueError:
+                pass
+        last_helper = 0.0
+
+        def _scan_helpers(full) -> bool:
+            """Match helper templates against the WHOLE window (so full-screen
+            templates like the unlock popup fit) and click. The unlock popup is
+            escaped by tapping the first (unlocked) bottom thumbnail instead of
+            the match center."""
+            fh, fw = full.shape[:2]
+            for path, tpl in helpers:
+                if tpl.shape[0] > fh or tpl.shape[1] > fw:
+                    continue
+                hits = detector.match_template(full, tpl, cfg.tiles_helper_threshold)
+                if not hits:
+                    continue
+                hx, hy, _ = hits[0]
+                release_all()  # drop any holds before clicking
+                if "unlock" in path.lower():
+                    # leave the locked-song popup -> first bottom thumbnail
+                    pyautogui.click((ox + fw * 0.066) * scale,
+                                    (oy + fh * 0.95) * scale)
+                else:
+                    pyautogui.click((ox + hx) * scale, (oy + hy) * scale)
+                return True
+            return False
+
+        # prime: lanes already dark at start must NOT fire
+        light_streak = [cfg.tiles_release_frames] * lanes
         prev = _read_dark()
-        held: int | None = None
-        held_since = 0.0
-        self.on_status("running (tiles) — Esc to stop")
+        backend = "keyboard" if use_kb else "mouse"
+        self.on_status(f"running (tiles/{backend}) — Esc to stop")
         try:
             while not self._stop.is_set():
-                dark = _read_dark()
                 now = time.monotonic()
 
-                # release on falling edge OR after the max hold time
-                if held is not None and (not dark[held] or now - held_since > cfg.tiles_max_hold):
-                    pyautogui.mouseUp()
-                    held = None
+                if now - last_helper >= cfg.tiles_helper_interval:
+                    last_helper = now
+                    if not locked:           # auto-lock onto the real board
+                        _recalibrate(src_grab(mon))
+                    if helpers and _scan_helpers(src_grab(None)):
+                        prev = [False] * lanes
+                        self._stop.wait(0.4)
+                        continue
 
-                # press on a rising edge while the pointer is free
-                if held is None:
-                    for i in range(lanes):
-                        if dark[i] and not prev[i]:
-                            pyautogui.mouseDown(lx[i], ly)
-                            held = i
-                            held_since = now
-                            break
+                dark = tiles_hysteresis(_read_dark(), light_streak,
+                                        cfg.tiles_release_frames)
+
+                if use_kb:
+                    # independent per-lane state -> true multi-hold + chords
+                    for act, i in tiles_kb_step(
+                        prev, dark, down, held_since, now, cfg.tiles_max_hold
+                    ):
+                        (release if act == "release" else press)(i)
+                else:
+                    # single pointer: one hold; chords are quick-tapped
+                    cur = down.index(True) if any(down) else None
+                    if cur is not None and (not dark[cur] or now - held_since[cur] > cfg.tiles_max_hold):
+                        release(cur)
+                        down[cur] = False
+                        cur = None
+                    if cur is None:
+                        new = tiles_rising(prev, dark)
+                        if len(new) == 1:
+                            i = new[0]
+                            press(i)
+                            down[i] = True
+                            held_since[i] = now
+                        elif len(new) > 1:
+                            for i in new:
+                                tap(i)
 
                 prev = dark
                 self._stop.wait(cfg.tiles_poll)
         finally:
-            if held is not None:
-                try:
-                    pyautogui.mouseUp()
-                except Exception:
-                    pass
+            release_all()
             if listener is not None:
                 listener.stop()
+            if win is not None:
+                win.close()
 
     def _scan_pixel(self, cap) -> tuple[list[detector.Match], tuple[int, int]]:
         """Grab a 1x1 region at pixel_point and test its color."""

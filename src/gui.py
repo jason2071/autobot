@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import time
 import tkinter as tk
 from tkinter import filedialog
 
@@ -39,6 +41,8 @@ class App:
 
         self.template_paths: list[str] = []
         self.bot: BotEngine | None = None
+        self._pending_id: str | None = None  # scheduled start-delay countdown
+        self.target_hwnd: int | None = None  # set when a window is the target
         self.windows: list[window_picker.Window] = []
         self.color_bgr: tuple[int, int, int] | None = None
         self.pixel_point: tuple[int, int] | None = None  # physical px
@@ -149,6 +153,16 @@ class App:
             font=self.f_label, height=36, corner_radius=10,
             fg_color=FIELD, selected_color=ACCENT, selected_hover_color=ACCENT_HOVER,
             unselected_color=FIELD, unselected_hover_color="#343846",
+        ).pack(fill="x", pady=(6, 0))
+
+        # start delay (countdown after pressing Start, to switch to the game)
+        ctk.CTkLabel(inner, text="START DELAY (s)", font=self.f_section,
+                     text_color=MUTED).pack(anchor="w", pady=(10, 0))
+        self.start_delay = tk.StringVar(value="3")
+        ctk.CTkEntry(
+            inner, textvariable=self.start_delay, font=self.f_label,
+            fg_color=FIELD, border_width=0, corner_radius=10, height=36,
+            justify="center",
         ).pack(fill="x", pady=(6, 0))
 
         # target
@@ -373,11 +387,63 @@ class App:
             command=lambda v: self.tiles_margin_label.configure(text=f"{int(v)}"),
         ).pack(fill="x", pady=(2, 8))
 
-        ctk.CTkButton(
+        # input backend: mouse (single finger) or keyboard (per-lane keys)
+        ctk.CTkLabel(p, text="INPUT", font=self.f_section,
+                     text_color=MUTED).pack(anchor="w", pady=(2, 0))
+        self.tiles_input = tk.StringVar(value="mouse")
+        ctk.CTkSegmentedButton(
+            p, values=["mouse", "keyboard"], variable=self.tiles_input,
+            command=self._on_tiles_input, font=self.f_label, height=34,
+            corner_radius=10, fg_color=FIELD, selected_color=ACCENT,
+            selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
+            unselected_hover_color="#343846",
+        ).pack(fill="x", pady=(6, 6))
+
+        # keyboard-only controls live in a frame so visibility toggles in place
+        self.tiles_kb_frame = ctk.CTkFrame(p, fg_color="transparent")
+        self.tiles_keys = tk.StringVar(value="d, f, j, k")
+        ctk.CTkEntry(
+            self.tiles_kb_frame, textvariable=self.tiles_keys, font=self.f_label,
+            fg_color=FIELD, border_width=0, corner_radius=10, height=34,
+            justify="center", placeholder_text="lane keys, e.g. d, f, j, k",
+        ).pack(fill="x")
+        self._muted(
+            self.tiles_kb_frame,
+            "map these keys to the lanes in LDPlayer.\n"
+            "holds multiple keys -> 2+ long tiles at once.",
+        ).pack(anchor="w", pady=(4, 0))
+
+        # default = fast BitBlt (game is on top while playing). Toggle ON only to
+        # capture while another app covers the game (slower PrintWindow).
+        ovl = ctk.CTkFrame(p, fg_color="transparent")
+        ovl.pack(fill="x", pady=(8, 0))
+        ovl.columnconfigure(0, weight=1)
+        ctk.CTkLabel(ovl, text="Capture while covered", font=self.f_sub,
+                     text_color=TEXT).grid(row=0, column=0, sticky="w")
+        self._muted(ovl, "slower; off = fast (keep game on top)").grid(
+            row=1, column=0, sticky="w")
+        self.tiles_covered = tk.BooleanVar(value=False)
+        ctk.CTkSwitch(
+            ovl, text="", variable=self.tiles_covered, onvalue=True, offvalue=False,
+            progress_color=GREEN, button_color="#ffffff", fg_color=FIELD, width=48,
+        ).grid(row=0, column=1, rowspan=2, sticky="e")
+
+        self._tiles_preview_btn = ctk.CTkButton(
             p, text="◎  Preview lanes / hit line", font=self.f_sub,
             fg_color=FIELD, hover_color="#343846", text_color=TEXT,
             corner_radius=10, height=32, command=self._preview_tiles,
-        ).pack(fill="x", pady=(2, 0))
+        )
+        self._tiles_preview_btn.pack(fill="x", pady=(8, 0))
+        # kb frame sits between the segmented button and the preview button
+        self._on_tiles_input("mouse")
+
+    def _on_tiles_input(self, choice: str) -> None:
+        """Show the key field only for the keyboard backend."""
+        if choice == "keyboard":
+            self.tiles_kb_frame.pack(fill="x", pady=(0, 4),
+                                     before=self._tiles_preview_btn)
+        else:
+            self.tiles_kb_frame.pack_forget()
 
     def _preview_tiles(self) -> None:
         """Capture the target region and overlay the lane points + hit line so
@@ -391,7 +457,15 @@ class App:
         if region is None:
             self._set_status("set the TARGET region first")
             return
-        cap = ScreenCapture()
+        if self.target_hwnd is not None:  # capture the window directly
+            from .window_capture import WindowCapture
+            method = "printwindow" if self.tiles_covered.get() else "bitblt"
+            if method == "bitblt":  # BitBlt reads on-screen pixels -> raise it
+                self._focus_target()
+                time.sleep(0.15)  # let it come to front before grabbing
+            cap = WindowCapture(self.target_hwnd, method)
+        else:
+            cap = ScreenCapture()
         frame = cap.grab(region)
         cap.close()
         h, w = frame.shape[:2]
@@ -399,13 +473,18 @@ class App:
         d = ImageDraw.Draw(img)
         lanes = max(1, self.tiles_lanes.get())
         hit_y = int(h * self.tiles_hit.get() / 100)
+        # same auto lane detection the bot uses, so the preview is truthful
+        from .bot import tiles_lane_geometry, tiles_board_edges
+        centers, bands = tiles_lane_geometry(frame, lanes)
+        edges = tiles_board_edges(frame)
+        if edges:  # mark detected board edges
+            for ex in edges:
+                d.line([(ex, 0), (ex, h)], fill=(0, 255, 120), width=1)
         d.line([(0, hit_y), (w, hit_y)], fill=(255, 60, 60), width=3)
-        for i in range(lanes):
-            x = int((i + 0.5) * w / lanes)
-            x0 = int((i + 0.25) * w / lanes)
-            x1 = int((i + 0.75) * w / lanes)
+        for cx, (x0, x1) in zip(centers, bands):
+            cx = int(cx)
             d.rectangle([x0, hit_y - 6, x1, hit_y + 6], outline=(60, 200, 255), width=2)
-            d.ellipse([x - 5, hit_y - 5, x + 5, hit_y + 5], fill=(60, 200, 255))
+            d.ellipse([cx - 5, hit_y - 5, cx + 5, hit_y + 5], fill=(60, 200, 255))
 
         win = tk.Toplevel(self.root)
         win.title("Tiles preview")
@@ -606,10 +685,25 @@ class App:
     def _on_window_pick(self, choice: str | None = None) -> None:
         choice = choice or self.window_choice.get()
         if choice == "Full screen":
+            self.target_hwnd = None
             self.region.set("")
             return
         win = next((w for w in self.windows if w.title == choice), None)
-        if win:
+        if not win:
+            return
+        if win.hwnd is not None:
+            # bind to the window: capture it directly. region is window-local;
+            # auto-trim typical emulator chrome (title bar, side toolbar, bottom
+            # thumbnails) to the play board so lanes land right out of the box.
+            self.target_hwnd = win.hwnd
+            b = win.bounds
+            top = round(b["height"] * 0.023)
+            left = round(b["width"] * 0.0125)
+            width = round(b["width"] * 0.935)
+            height = round(b["height"] * 0.89)
+            self.region.set(f"{top}, {left}, {width}, {height}")
+        else:
+            self.target_hwnd = None
             self._set_region_logical(win.bounds)
 
     def _drag_region(self) -> None:
@@ -655,6 +749,7 @@ class App:
         self.root.wait_window(ov)
 
         if result:
+            self.target_hwnd = None  # drag selects a screen region, not a window
             self.window_choice.set("Full screen")
             self._set_region_logical(result)
 
@@ -703,7 +798,32 @@ class App:
             tiles_lanes=self.tiles_lanes.get(),
             tiles_hit=self.tiles_hit.get() / 100.0,
             tiles_margin=self.tiles_margin.get(),
+            tiles_input=self.tiles_input.get(),
+            tiles_keys=self._parse_keys(),
+            tiles_helpers=self._helper_templates() if mode == "tiles" else [],
+            target_hwnd=self.target_hwnd if mode == "tiles" else None,
+            window_method="printwindow" if self.tiles_covered.get() else "bitblt",
         )
+
+    def _parse_keys(self) -> list[str]:
+        """Parse the lane-keys field into single-char key names."""
+        raw = self.tiles_keys.get().replace(",", " ").split()
+        keys = [k.strip().lower() for k in raw if k.strip()]
+        return keys or ["d", "f", "j", "k"]
+
+    @staticmethod
+    def _helper_templates() -> list[str]:
+        """Screens auto-handled between songs (match full window): the unlock
+        popup is escaped to a playable song, START begins it. Order matters —
+        unlock is checked before START."""
+        return [p for p in ("templates/unlock.png", "templates/start.png")
+                if os.path.isfile(p)]
+
+    def _focus_target(self) -> None:
+        """Bring the selected target window to the foreground before starting."""
+        choice = self.window_choice.get()
+        if choice and choice != "Full screen":
+            window_picker.focus_window(choice)
 
     def _validate(self, cfg: BotConfig) -> str | None:
         if cfg.mode == "template" and not cfg.template_paths:
@@ -714,6 +834,9 @@ class App:
             return "no pixel picked"
         if cfg.mode == "tiles" and cfg.region is None:
             return "set the game region (TARGET) first"
+        if (cfg.mode == "tiles" and cfg.tiles_input == "keyboard"
+                and len(cfg.tiles_keys) < cfg.tiles_lanes):
+            return f"need {cfg.tiles_lanes} lane keys (got {len(cfg.tiles_keys)})"
         return None
 
     def _running(self) -> bool:
@@ -722,6 +845,10 @@ class App:
     def _toggle(self) -> None:
         if self._running():
             self._stop_bot()
+            return
+        if self._pending_id is not None:  # pressed during countdown -> cancel
+            self._cancel_pending()
+            self._set_status("Ready")
             return
         try:
             config = self._build_config()
@@ -733,6 +860,30 @@ class App:
             self._set_status(f"error: {err}")
             return
 
+        try:
+            delay = max(int(self.start_delay.get()), 0)
+        except ValueError:
+            delay = 0
+        self._countdown(delay, config)
+
+    def _cancel_pending(self) -> None:
+        if self._pending_id is not None:
+            self.root.after_cancel(self._pending_id)
+            self._pending_id = None
+        self.toggle_btn.configure(text="▶   Start", fg_color=GREEN,
+                                  hover_color=GREEN_HOVER)
+
+    def _countdown(self, secs: int, config: BotConfig) -> None:
+        if secs > 0:
+            self.toggle_btn.configure(text="✕   Cancel", fg_color=AMBER,
+                                      hover_color=AMBER)
+            self._set_status(f"starting in {secs}…")
+            self._pending_id = self.root.after(
+                1000, lambda: self._countdown(secs - 1, config)
+            )
+            return
+        self._pending_id = None
+        self._focus_target()  # raise the game window so clicks land on it
         self.bot = BotEngine(config, on_status=self._set_status)
         self.bot.start()
         self.toggle_btn.configure(text="■   Stop", fg_color=RED, hover_color=RED_HOVER)
