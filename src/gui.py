@@ -141,27 +141,11 @@ class App:
         right = ctk.CTkFrame(card, fg_color="transparent")
         right.grid(row=0, column=2, sticky="nsew", padx=(10, 16), pady=12)
 
-        # tiles is the only mode — build both columns
+        # tiles is the only mode — build both columns (Start/status live at the
+        # bottom of the right column so the left column growing in keyboard mode
+        # never squashes the Start button).
         self.panels: dict[str, ctk.CTkFrame] = {}
         self._build_tiles_panel(left, right)
-
-        # ── Start / Stop — full width, always visible below card ──────────
-        self.toggle_btn = ctk.CTkButton(
-            outer, text="▶   Start", font=self.f_btn, fg_color=GREEN,
-            hover_color=GREEN_HOVER, text_color="#ffffff", corner_radius=12,
-            height=48, command=self._toggle,
-        )
-        self.toggle_btn.pack(fill="x", pady=(12, 0))
-
-        # ── status ────────────────────────────────────────────────────────
-        status_row = ctk.CTkFrame(outer, fg_color="transparent")
-        status_row.pack(fill="x", pady=(8, 0))
-        self.dot = ctk.CTkLabel(status_row, text="●", font=ctk.CTkFont(size=13),
-                                text_color=MUTED, width=14)
-        self.dot.pack(side="left")
-        self.status = tk.StringVar(value="Ready")
-        ctk.CTkLabel(status_row, textvariable=self.status, font=self.f_sub,
-                     text_color=MUTED).pack(side="left", padx=(4, 0))
 
     # --- detection panel (two columns: left = target+input, right = sliders+color) ---
     def _build_tiles_panel(self, left, right) -> None:
@@ -311,6 +295,22 @@ class App:
             corner_radius=10, height=32, command=self._preview_tiles,
         )
         self._tiles_preview_btn.pack(fill="x", pady=(4, 0))
+
+        # ── Start / Stop + status — bottom of the right column ────────────
+        self.toggle_btn = ctk.CTkButton(
+            right, text="▶   Start", font=self.f_btn, fg_color=GREEN,
+            hover_color=GREEN_HOVER, text_color="#ffffff", corner_radius=12,
+            height=48, command=self._toggle,
+        )
+        self.toggle_btn.pack(fill="x", pady=(14, 0))
+        status_row = ctk.CTkFrame(right, fg_color="transparent")
+        status_row.pack(fill="x", pady=(8, 0))
+        self.dot = ctk.CTkLabel(status_row, text="●", font=ctk.CTkFont(size=13),
+                                text_color=MUTED, width=14)
+        self.dot.pack(side="left")
+        self.status = tk.StringVar(value="Ready")
+        ctk.CTkLabel(status_row, textvariable=self.status, font=self.f_sub,
+                     text_color=MUTED).pack(side="left", padx=(4, 0))
 
         # initial state: mouse mode — keyboard frame hidden
         self._on_tiles_input("mouse")
