@@ -45,9 +45,20 @@ pip install -r requirements.txt
    - **Threshold** — ความแม่น (0.8 เริ่มต้น; สูง = เข้มงวด)
    - **Interval (ms)** — เว้นช่วงสแกน
    - **Click mode** — `first` คลิกจุดแรก / `all` คลิกทุกจุดที่เจอ
-   - **Region** — `top,left,width,height` (physical px) หรือเว้นว่าง = ทั้งจอ
+   - **Target** — เลือกขอบเขตที่จะสแกน/คลิก (ดูด้านล่าง)
    - **Background click (ไม่ขยับเมาส์)** — ติ๊ก = คลิกโดยไม่ขยับ cursor จริง (ดูด้านล่าง)
    - **Start** / **Stop**
+
+### Target — เกมไม่เต็มจอ
+ไม่ต้องสแกนทั้งจอ เลือกขอบเขตได้ 3 แบบ:
+- **ทั้งจอ** (default) — สแกนทุกพิกเซล
+- **เลือก window** — กด **🔄 refresh** แล้วเลือก window ของเกม/แอปจาก dropdown →
+  ระบบเติม region = ขอบเขต window นั้นให้อัตโนมัติ. ถ้าย้าย/ปรับขนาด window แล้ว
+  กด refresh + เลือกใหม่
+- **◰ ตีกรอบพื้นที่** — ลากเมาส์วาดกรอบบนหน้าจอเอง (Esc ยกเลิก)
+
+ทั้งสองแบบเติมลงช่อง **region** (`top,left,width,height` physical px) ซึ่งแก้มือได้.
+ว่าง = ทั้งจอ. พิกัด Retina ถูกคูณ scale ให้อัตโนมัติ.
 
 ### Background click (ไม่ขยับเมาส์)
 ติ๊ก **Background click** = บอทส่ง click ตรงไปยัง window ใต้จุดเป้าหมาย โดย

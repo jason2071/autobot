@@ -5,7 +5,11 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, font, ttk
 
+import pyautogui
+
 from .bot import BotConfig, BotEngine
+from .capture import ScreenCapture
+from . import window_picker
 
 # --- palette ------------------------------------------------------------------
 BG = "#181a20"        # window background
@@ -30,6 +34,13 @@ class App:
 
         self.template_paths: list[str] = []
         self.bot: BotEngine | None = None
+        self.windows: list[window_picker.Window] = []
+
+        # ratio to convert logical screen points -> physical pixels (mss region)
+        cap = ScreenCapture()
+        phys_w = cap.primary_monitor["width"]
+        cap.close()
+        self.ratio = phys_w / pyautogui.size().width  # 1.0, or 2.0 on Retina
 
         self._setup_fonts()
         self._setup_style()
@@ -175,20 +186,42 @@ class App:
         ).grid(row=r, column=1, sticky="e", pady=8)
         r += 1
 
-        # region
-        ttk.Label(card, text="Region", style="Card.TLabel").grid(
+        # target window
+        ttk.Label(card, text="Target", style="Card.TLabel").grid(
             row=r, column=0, sticky="w", pady=8
         )
+        self.window_choice = tk.StringVar(value="ทั้งจอ")
+        self.window_box = ttk.Combobox(
+            card, textvariable=self.window_choice, values=["ทั้งจอ"],
+            width=22, state="readonly", style="Dark.TCombobox",
+        )
+        self.window_box.grid(row=r, column=1, sticky="e", pady=8)
+        self.window_box.bind("<<ComboboxSelected>>", self._on_window_pick)
+        r += 1
+        btns = ttk.Frame(card, style="TFrame")
+        btns.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+        ttk.Button(
+            btns, text="🔄 refresh", style="Soft.TButton",
+            command=self._refresh_windows,
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Button(
+            btns, text="◰ ตีกรอบพื้นที่", style="Soft.TButton",
+            command=self._drag_region,
+        ).grid(row=0, column=1, sticky="w", padx=(8, 0))
+        r += 1
+
+        # region (resolved / manual)
         self.region = tk.StringVar(value="")
         ttk.Entry(
-            card, textvariable=self.region, width=18,
+            card, textvariable=self.region, width=22,
             style="Dark.TEntry", justify="center",
-        ).grid(row=r, column=1, sticky="e", pady=8)
+        ).grid(row=r, column=0, columnspan=2, sticky="ew", pady=(2, 2))
         r += 1
         ttk.Label(
-            card, text="top,left,width,height — ว่าง = ทั้งจอ", style="Muted.TLabel"
+            card, text="top,left,width,height (px) — ว่าง = ทั้งจอ", style="Muted.TLabel"
         ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 6))
         r += 1
+        self._refresh_windows()
         self._sep(card, r); r += 1
 
         # background click
@@ -245,6 +278,79 @@ class App:
         if "idle" in m:
             return AMBER
         return MUTED
+
+    # --- target window / region -------------------------------------------
+    def _refresh_windows(self) -> None:
+        self.windows = window_picker.list_windows()
+        titles = [w.title for w in self.windows]
+        self.window_box.config(values=["ทั้งจอ"] + titles)
+        if self.window_choice.get() not in titles:
+            self.window_choice.set("ทั้งจอ")
+
+    def _set_region_logical(self, b: dict) -> None:
+        """Write a region (logical points) into the entry as physical pixels."""
+        rr = self.ratio
+        self.region.set(
+            f"{int(b['top']*rr)},{int(b['left']*rr)},"
+            f"{int(b['width']*rr)},{int(b['height']*rr)}"
+        )
+
+    def _on_window_pick(self, _e=None) -> None:
+        choice = self.window_choice.get()
+        if choice == "ทั้งจอ":
+            self.region.set("")
+            return
+        win = next((w for w in self.windows if w.title == choice), None)
+        if win:
+            self._set_region_logical(win.bounds)
+
+    def _drag_region(self) -> None:
+        """Fullscreen overlay; drag a rectangle to set the region."""
+        result: dict = {}
+        ov = tk.Toplevel(self.root)
+        ov.attributes("-fullscreen", True)
+        try:
+            ov.attributes("-alpha", 0.25)
+        except tk.TclError:
+            pass
+        ov.configure(bg="black", cursor="crosshair")
+        ov.attributes("-topmost", True)
+        canvas = tk.Canvas(ov, bg="black", highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+        canvas.create_text(
+            ov.winfo_screenwidth() // 2, 40,
+            text="ลากเพื่อเลือกพื้นที่  •  Esc ยกเลิก",
+            fill="white", font=self.f_label,
+        )
+        s = {"x": 0, "y": 0, "rect": None}
+
+        def press(e):
+            s["x"], s["y"] = e.x, e.y
+            s["rect"] = canvas.create_rectangle(
+                e.x, e.y, e.x, e.y, outline=GREEN, width=2
+            )
+
+        def drag(e):
+            if s["rect"]:
+                canvas.coords(s["rect"], s["x"], s["y"], e.x, e.y)
+
+        def release(e):
+            left, top = min(s["x"], e.x), min(s["y"], e.y)
+            w, h = abs(e.x - s["x"]), abs(e.y - s["y"])
+            if w > 5 and h > 5:
+                result.update(top=top, left=left, width=w, height=h)
+            ov.destroy()
+
+        canvas.bind("<ButtonPress-1>", press)
+        canvas.bind("<B1-Motion>", drag)
+        canvas.bind("<ButtonRelease-1>", release)
+        ov.bind("<Escape>", lambda _e: ov.destroy())
+        ov.grab_set()
+        self.root.wait_window(ov)
+
+        if result:
+            self.window_choice.set("ทั้งจอ")
+            self._set_region_logical(result)
 
     # --- actions -----------------------------------------------------------
     def _pick_templates(self) -> None:
