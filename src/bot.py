@@ -47,8 +47,8 @@ class BotConfig:
     # region is window-local. window_method: "bitblt" (fast) keeps the window
     # visible; "printwindow" (slower) is immune to other apps overlapping it.
     target_hwnd: int | None = None
-    window_method: str = "printwindow"  # reliable default (overlap-proof, ~65fps);
-                                        # "bitblt" = ~6x faster but needs game on top
+    window_method: str = "bitblt"  # fast/low-latency default (keeps up with the
+                                   # game); "printwindow" = slower, capture covered
     # helper templates clicked on sight (e.g. retry / start buttons between songs)
     tiles_helpers: list[str] = field(default_factory=list)
     tiles_helper_threshold: float = 0.8

@@ -176,6 +176,28 @@ def test_tiles_on_screenshots() -> None:
         print(f"  {os.path.basename(path)} -> dark lanes {dark}")
 
 
+def test_tiles_game_cases() -> None:
+    """Real captures from other skins: long-note songs (game2/game3) and a
+    diagonal-slide song (game1, unsupported). Skipped if the assets are absent
+    (templates/*.png are gitignored)."""
+    # long notes: the dark note body is detected in lanes 0 & 2
+    for name in ("game2", "game3"):
+        p = f"templates/{name}.png"
+        if not os.path.isfile(p):
+            print(f"  ({name} missing — skipped)")
+            continue
+        dark = _lane_darks(cv2.imread(p), hit=0.70)
+        assert dark == [True, False, True, False], f"{name}: {dark}"
+        print(f"  {name} long notes -> {[int(x) for x in dark]}")
+    # diagonal slide: bright/diagonal note is unsupported — must NOT false-fire
+    if os.path.isfile("templates/game1.png"):
+        dark = _lane_darks(cv2.imread("templates/game1.png"), hit=0.70)
+        assert not any(dark), f"game1 slide should not false-fire: {dark}"
+        print("  game1 slide (unsupported) -> no false detection")
+    else:
+        print("  (game1 missing — skipped)")
+
+
 def test_helper_templates() -> None:
     helpers = [p for p in ("templates/retry.png", "templates/start.png")
                if os.path.isfile(p)]
@@ -204,6 +226,7 @@ def main() -> None:
         ("tiles/kb-multihold", test_tiles_keyboard_multihold),
         ("tiles/hysteresis", test_tiles_hysteresis),
         ("tiles/screenshots", test_tiles_on_screenshots),
+        ("tiles/game-cases", test_tiles_game_cases),
         ("tiles/helpers", test_helper_templates),
     ]:
         print(f"[{name}]")

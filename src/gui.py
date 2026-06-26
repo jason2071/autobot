@@ -420,9 +420,9 @@ class App:
         ovl.columnconfigure(0, weight=1)
         ctk.CTkLabel(ovl, text="Fast capture", font=self.f_sub,
                      text_color=TEXT).grid(row=0, column=0, sticky="w")
-        self._muted(ovl, "~6x faster, but keep game uncovered on top").grid(
+        self._muted(ovl, "on = fast/low-latency (keep game uncovered on top)").grid(
             row=1, column=0, sticky="w")
-        self.tiles_fast = tk.BooleanVar(value=False)
+        self.tiles_fast = tk.BooleanVar(value=True)  # default fast (needed to keep up)
         ctk.CTkSwitch(
             ovl, text="", variable=self.tiles_fast, onvalue=True, offvalue=False,
             progress_color=GREEN, button_color="#ffffff", fg_color=FIELD, width=48,
