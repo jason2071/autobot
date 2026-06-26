@@ -1,4 +1,6 @@
 .venv/
+.vscode/
+.claude/
 __pycache__/
 *.pyc
 templates/*.png
