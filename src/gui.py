@@ -387,6 +387,23 @@ class App:
             command=lambda v: self.tiles_margin_label.configure(text=f"{int(v)}"),
         ).pack(fill="x", pady=(2, 8))
 
+        # opt-in hold extension (helps long notes with a light trail; 0 = off)
+        he_row = ctk.CTkFrame(p, fg_color="transparent")
+        he_row.pack(fill="x", pady=(0, 6))
+        he_row.columnconfigure(0, weight=1)
+        ctk.CTkLabel(he_row, text="HOLD EXTRA (long notes)", font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
+        self.tiles_hold_extra = tk.IntVar(value=0)
+        self.tiles_hold_extra_label = ctk.CTkLabel(he_row, text="0", font=self.f_value,
+                                                   text_color=ACCENT)
+        self.tiles_hold_extra_label.grid(row=0, column=1, sticky="e")
+        ctk.CTkSlider(
+            p, from_=0, to=40, number_of_steps=40, variable=self.tiles_hold_extra,
+            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
+            progress_color=ACCENT, fg_color=FIELD, height=16,
+            command=lambda v: self.tiles_hold_extra_label.configure(text=f"{int(v)}"),
+        ).pack(fill="x", pady=(2, 8))
+
         # input backend: mouse (single finger) or keyboard (per-lane keys)
         ctk.CTkLabel(p, text="INPUT", font=self.f_section,
                      text_color=MUTED).pack(anchor="w", pady=(2, 0))
@@ -812,6 +829,7 @@ class App:
             tiles_input=self.tiles_input.get(),
             tiles_keys=self._parse_keys(),
             tiles_start_key=self.tiles_start_key.get().strip().lower(),
+            tiles_hold_extra=self.tiles_hold_extra.get(),
             tiles_helpers=self._helper_templates() if mode == "tiles" else [],
             target_hwnd=self.target_hwnd if mode == "tiles" else None,
             window_method="bitblt" if self.tiles_fast.get() else "printwindow",

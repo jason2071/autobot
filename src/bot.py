@@ -39,6 +39,9 @@ class BotConfig:
     tiles_poll: float = 0.001    # seconds between scans (fast; tiles speed up)
     tiles_max_hold: float = 4.0  # force-release a hold after this many seconds
     tiles_release_frames: int = 3  # frames of light before releasing (debounce)
+    tiles_hold_extra: int = 0      # opt-in: extra light frames before releasing
+                                   # a hold (helps long notes whose dark part is
+                                   # shorter than the note; 0 = no change)
     # input backend: "mouse" (single finger) or "keyboard" (per-lane keys, so
     # multiple long tiles / chords can be held at once via LDPlayer key mapping)
     tiles_input: str = "mouse"
@@ -491,8 +494,9 @@ class BotEngine:
                         self._stop.wait(0.4)
                         continue
 
-                dark = tiles_hysteresis(_read_dark(), light_streak,
-                                        cfg.tiles_release_frames)
+                dark = tiles_hysteresis(
+                    _read_dark(), light_streak,
+                    cfg.tiles_release_frames + cfg.tiles_hold_extra)
 
                 if use_kb:
                     # independent per-lane state -> true multi-hold + chords
