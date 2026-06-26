@@ -89,13 +89,12 @@ all inside `BotEngine._run_tiles` running on a daemon thread.
 - **Latency drives accuracy** in fast songs. BitBlt (low latency) is the default;
   `tiles_lead` samples a few px *above* the hit line so the press fires early
   enough. PrintWindow's higher latency can miss everything ("nothing presses").
-- **Input backends** (`tiles_input`): `mouse` (foreground, single finger,
-  pyautogui), `keyboard` (foreground multi-key via pynput — reaches the
-  **focused** window, so the bot raises LDPlayer at start; needs LDPlayer
-  key-mapping lanes→`d f j k`, START→`g`, and `tiles_start_key` must not collide
-  with a lane key), and `background` (`src/touch.py` `TouchInjector` via Win32
-  `InjectTouchInput` — multi-finger, **no focus needed**, real cursor never
-  moves, but LDPlayer must stay **visible/uncovered**). All three drive the same
-  per-lane state machine (`tiles_kb_step` for the multi-finger paths).
+- **Input is background multi-touch only** (`src/touch.py` `TouchInjector` via
+  Win32 `InjectTouchInput`): one finger per lane, **no focus needed**, real
+  cursor never moves, but LDPlayer must stay **visible/uncovered** (touch hits
+  the topmost window at the point). Driven by the per-lane state machine
+  `tiles_kb_step` (multi-hold / chords). The old mouse (pyautogui) and keyboard
+  (pynput) backends were removed; pynput is still used only for the Esc
+  emergency-stop listener.
 - `templates/` and `*.mp4` are gitignored (game assets, gameplay recordings used
   only for offline analysis).

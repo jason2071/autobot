@@ -185,7 +185,7 @@ class App:
 
         self._refresh_windows()
 
-        # ── INPUT header row — shares line with Fast capture switch ───────
+        # ── INPUT (always background multi-touch) + Fast capture ──────────
         inp_row = ctk.CTkFrame(left, fg_color="transparent")
         inp_row.pack(fill="x")
         inp_row.columnconfigure(0, weight=1)
@@ -204,40 +204,10 @@ class App:
             fg_color=FIELD, width=44,
         ).pack(side="left")
 
-        self.tiles_input = tk.StringVar(value="mouse")
-        ctk.CTkSegmentedButton(
-            left, values=["mouse", "keyboard", "background"], variable=self.tiles_input,
-            command=self._on_tiles_input, font=self.f_label, height=34,
-            corner_radius=10, fg_color=FIELD, selected_color=ACCENT,
-            selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
-            unselected_hover_color="#343846",
-        ).pack(fill="x", pady=(5, 0))
-
-        # keyboard-only controls — hidden until keyboard mode is selected.
-        # Lives at the bottom of the left column; pack/pack_forget toggles it.
-        self.tiles_kb_frame = ctk.CTkFrame(left, fg_color="transparent")
-        self.tiles_keys = tk.StringVar(value="d, f, j, k")
-        ctk.CTkEntry(
-            self.tiles_kb_frame, textvariable=self.tiles_keys, font=self.f_label,
-            fg_color=FIELD, border_width=0, corner_radius=10, height=34,
-            justify="center", placeholder_text="lane keys, e.g. d, f, j, k",
-        ).pack(fill="x", pady=(6, 0))
         self._muted(
-            self.tiles_kb_frame,
-            "map these keys to lanes in LDPlayer.\n"
-            "holds multiple keys → 2+ long tiles at once.",
-        ).pack(anchor="w", pady=(3, 0))
-        self.tiles_start_key = tk.StringVar(value="g")
-        ctk.CTkEntry(
-            self.tiles_kb_frame, textvariable=self.tiles_start_key, font=self.f_label,
-            fg_color=FIELD, border_width=0, corner_radius=10, height=34,
-            justify="center", placeholder_text="start key (map to START)",
-        ).pack(fill="x", pady=(6, 0))
-        self._muted(
-            self.tiles_kb_frame,
-            "key to start a song (map to START in LDPlayer).\n"
-            "empty = click instead.",
-        ).pack(anchor="w", pady=(3, 0))
+            left, "background multi-touch — no focus needed, plays while you\n"
+                  "work elsewhere. keep LDPlayer visible / uncovered.",
+        ).pack(anchor="w", pady=(5, 0))
 
         # ══════════════ RIGHT COLUMN — SLIDERS + COLOR + PREVIEW ══════════
 
@@ -312,9 +282,6 @@ class App:
         ctk.CTkLabel(status_row, textvariable=self.status, font=self.f_sub,
                      text_color=MUTED).pack(side="left", padx=(4, 0))
 
-        # initial state: mouse mode — keyboard frame hidden
-        self._on_tiles_input("mouse")
-
     def _pick_note_color(self) -> None:
         res = self._eyedropper()
         if not res:
@@ -332,18 +299,6 @@ class App:
         self.tiles_note_swatch.configure(fg_color=FIELD)
         self.tiles_note_label.configure(
             text="optional: bright notes / slides — pick one or more (off = dark only)")
-
-    def _on_tiles_input(self, choice: str) -> None:
-        """Show the key fields only for the keyboard backend.
-
-        tiles_kb_frame lives at the bottom of the left column; pack_forget/pack
-        toggles its visibility. No before= needed — _tiles_preview_btn is in
-        the right column and the two are independent.
-        """
-        if choice == "keyboard":
-            self.tiles_kb_frame.pack(fill="x", pady=(6, 0))
-        else:
-            self.tiles_kb_frame.pack_forget()
 
     def _preview_tiles(self) -> None:
         """Capture the target region and overlay the lane points + hit line so
@@ -641,21 +596,12 @@ class App:
             region=self._parse_region(),
             tiles_hit=self.tiles_hit.get() / 100.0,
             tiles_margin=self.tiles_margin.get(),
-            tiles_input=self.tiles_input.get(),
-            tiles_keys=self._parse_keys(),
-            tiles_start_key=self.tiles_start_key.get().strip().lower(),
             tiles_hold_extra=self.tiles_hold_extra.get(),
             tiles_note_colors=list(self.tiles_note_bgrs),
             tiles_helpers=self._helper_templates(),
             target_hwnd=self.target_hwnd,
             window_method="bitblt" if self.tiles_fast.get() else "printwindow",
         )
-
-    def _parse_keys(self) -> list[str]:
-        """Parse the lane-keys field into single-char key names."""
-        raw = self.tiles_keys.get().replace(",", " ").split()
-        keys = [k.strip().lower() for k in raw if k.strip()]
-        return keys or ["d", "f", "j", "k"]
 
     @staticmethod
     def _helper_templates() -> list[str]:
@@ -674,8 +620,6 @@ class App:
     def _validate(self, cfg: BotConfig) -> str | None:
         if cfg.region is None:
             return "set the game region (TARGET) first"
-        if cfg.tiles_input == "keyboard" and len(cfg.tiles_keys) < 4:
-            return f"need 4 lane keys (got {len(cfg.tiles_keys)})"
         return None
 
     def _running(self) -> bool:
