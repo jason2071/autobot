@@ -553,7 +553,7 @@ class App:
             tiles_note_colors=list(self.tiles_note_bgrs),
             tiles_helpers=self._helper_templates(),
             target_hwnd=self.target_hwnd,
-            window_method="printwindow",
+            window_method="dxcam",
         )
 
     @staticmethod

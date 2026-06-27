@@ -29,10 +29,18 @@ _PW_RENDERFULLCONTENT = 2
 class WindowCapture:
     """PrintWindow-based grabber for one HWND. Mirrors ScreenCapture.grab()."""
 
-    def __init__(self, hwnd: int, method: str = "printwindow") -> None:
-        """method: "bitblt" (fast, ~400fps, but reads on-screen pixels so it
-        fails if another window overlaps) or "printwindow" (slower ~65fps but
-        overlap-proof — renders the window even when covered)."""
+    def __init__(self, hwnd: int, method: str = "dxcam") -> None:
+        """method:
+          - "dxcam": DXGI desktop duplication of the window's SCREEN region —
+            ~0.1ms/grab and pixel-correct (the composited frame), vs ~20ms for
+            PrintWindow. The window must stay visible/uncovered (we already
+            require that for touch). This is the default — low latency is what
+            lets the bot keep up as a song speeds up.
+          - "printwindow": ~20ms/grab but overlap-proof (renders even when
+            covered). Correct fallback if dxcam is unavailable.
+          - "bitblt": fast GDI blit, but reads the WRONG layer for LDPlayer
+            (GPU surface) — kept only for non-emulator windows.
+        """
         if not _OK:
             raise RuntimeError("window capture needs pywin32 (Windows only)")
         self.hwnd = hwnd
@@ -44,6 +52,16 @@ class WindowCapture:
         self._save = None
         self._bmp = None
         self._size = (0, 0)
+        self._cam = None      # dxcam camera (created lazily)
+        self._last = None     # last good dxcam frame (grab() returns None if no
+                              # new display frame yet — reuse the previous one)
+        if method == "dxcam":
+            try:
+                import dxcam
+                self._cam = dxcam.create(output_color="BGR")
+            except Exception as e:  # fall back to PrintWindow if dxcam missing
+                self.method = "printwindow"
+                self._cam = None
 
     def origin(self) -> tuple[int, int]:
         """Current (left, top) of the window in absolute screen pixels."""
@@ -86,6 +104,9 @@ class WindowCapture:
         if w <= 0 or h <= 0:
             raise RuntimeError("window has no area (minimized?)")
 
+        if self.method == "dxcam":
+            return self._grab_dxcam(l, t, w, h, region)
+
         self._ensure(w, h)
 
         def _read() -> np.ndarray:
@@ -114,8 +135,41 @@ class WindowCapture:
             arr = arr[y0:y1, x0:x1]
         return np.ascontiguousarray(arr)
 
+    def _grab_dxcam(self, l, t, w, h, region) -> np.ndarray:
+        """DXGI grab of the window's absolute screen rect, then crop the
+        requested window-local region locally. Always captures the FULL window
+        (so the cached `_last` has a stable shape across strip/full calls) and
+        reuses it when the duplication API has no newer frame (sub-16ms polls)."""
+        sx, sy = max(l, 0), max(t, 0)
+        frame = self._cam.grab(region=(sx, sy, l + w, t + h))
+        if frame is None:           # no new display frame since last grab
+            frame = self._last
+            if frame is None:       # cold start: block briefly for first frame
+                import time
+                for _ in range(50):
+                    frame = self._cam.grab(region=(sx, sy, l + w, t + h))
+                    if frame is not None:
+                        break
+                    time.sleep(0.005)
+                if frame is None:
+                    raise RuntimeError("dxcam returned no frame (window off-screen?)")
+        self._last = frame          # full-window frame, stable shape
+        if region:
+            y0 = max(int(region["top"]), 0)
+            x0 = max(int(region["left"]), 0)
+            y1 = min(y0 + int(region["height"]), frame.shape[0])
+            x1 = min(x0 + int(region["width"]), frame.shape[1])
+            frame = frame[y0:y1, x0:x1]
+        return np.ascontiguousarray(frame)
+
     def close(self) -> None:
         self._free()
+        if self._cam is not None:
+            try:
+                self._cam.release()
+            except Exception:
+                pass
+            self._cam = None
 
     def __enter__(self) -> "WindowCapture":
         return self

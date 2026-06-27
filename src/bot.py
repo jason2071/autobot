@@ -45,8 +45,10 @@ class BotConfig:
     # region is window-local. window_method: "bitblt" (fast) keeps the window
     # visible; "printwindow" (slower) is immune to other apps overlapping it.
     target_hwnd: int | None = None
-    window_method: str = "printwindow"  # reliable for LDPlayer (bitblt can grab a
-                                        # stale/wrong layer); "bitblt" = faster
+    window_method: str = "dxcam"  # DXGI duplication: ~0.1ms/grab & pixel-correct
+                                  # (low latency = keeps up as the song speeds up).
+                                  # "printwindow" (~20ms) is the fallback; bitblt
+                                  # grabs the wrong GPU layer for LDPlayer.
     # helper templates clicked on sight (e.g. retry / start buttons between songs)
     tiles_helpers: list[str] = field(default_factory=list)
     tiles_helper_threshold: float = 0.8

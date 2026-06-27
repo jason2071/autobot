@@ -68,10 +68,13 @@ all inside `BotEngine._run_tiles` running on a daemon thread.
 
 - **Capture** is window-bound. `src/window_capture.py` `WindowCapture` grabs one
   HWND directly so coordinates are **window-local** and other windows don't
-  interfere. Two methods exist — `bitblt` (~400fps, reads on-screen pixels) and
-  `printwindow` (~65fps, overlap-proof) — but the bot **hard-wires PrintWindow**:
-  BitBlt grabs the wrong layer for LDPlayer (overlapping child windows), so
-  detection runs on a stale/blank image and nothing taps. `src/capture.py`
+  interfere. Three methods: **`dxcam`** (default) — DXGI desktop duplication of
+  the window's screen rect, ~0.1ms/grab and pixel-correct; low capture latency is
+  what lets the bot keep up as a song speeds up (PrintWindow's ~20ms/grab made it
+  tap too late). `printwindow` (~20ms, overlap-proof) is the fallback when dxcam
+  is unavailable. `bitblt` grabs the WRONG GPU layer for LDPlayer (verified: a
+  full-frame mismatch) so it is never used for the emulator. dxcam needs the
+  window visible/uncovered — already required for touch. `src/capture.py`
   `ScreenCapture` (mss) is used for the eyedropper / scale. `src/window_picker.py`
   lists windows and `focus_window`s the target (Win32 / AppleScript).
 
