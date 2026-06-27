@@ -30,6 +30,11 @@ class BotConfig:
     tiles_hue_lo: int = 90
     tiles_hue_hi: int = 110
     tiles_sat_min: int = 140
+    # if more than this fraction of the play area is tile-mask, it is NOT a
+    # gameplay board (a menu / ad / result screen, or another window covering
+    # LDPlayer) — suppress pressing so the bot doesn't tap random UI. Real
+    # gameplay is sparse (~0.1-0.25); menus/garbage are dense (0.5+).
+    tiles_max_cover: float = 0.5
     tiles_poll: float = 0.001    # seconds between scans (fast; tiles speed up)
     tiles_max_hold: float = 4.0  # force-release a hold after this many seconds
     tiles_release_frames: int = 3  # frames of light before releasing (debounce)
@@ -347,13 +352,18 @@ class BotEngine:
             for bgr in cfg.tiles_note_colors)
 
         def _segments(board):
+            """Return (segments, is_gameplay). is_gameplay is False when the
+            play area is too densely masked to be a real board (menu / ad /
+            covering window) — the caller then suppresses pressing."""
             mask = predict.tile_mask(board, cfg.tiles_dark_v, cfg.tiles_hue_lo,
                                      cfg.tiles_hue_hi, cfg.tiles_sat_min,
                                      extra_hues)
-            return predict.lane_segments(
+            cover = float(mask[y_lo:y_hi].mean())
+            segs = predict.lane_segments(
                 board, bands, cfg.tiles_margin, cfg.tiles_min_run,
                 cfg.tiles_dark_frac, y_lo=y_lo, y_hi=y_hi,
                 merge_gap=cfg.tiles_merge_gap, mask=mask)
+            return segs, cover <= cfg.tiles_max_cover
 
         def _trigger_occ(board, segs):
             # the mask already covers dark + coloured notes, so trigger occupancy
@@ -439,7 +449,19 @@ class BotEngine:
                         continue
 
                 board = src_grab(mon)
-                segs = _segments(board)
+                segs, gameplay = _segments(board)
+
+                # Not a gameplay board (menu / ad / result, or a window covering
+                # LDPlayer → garbage capture): drop any holds and DON'T press, so
+                # the bot never taps random UI. last_active is left stale so the
+                # quiet-gated helper scan above takes over (START / close ad).
+                if not gameplay:
+                    release_all()
+                    prev_bottoms = None
+                    prev_occ = [False] * lanes
+                    last_t = now
+                    self._stop.wait(cfg.tiles_poll)
+                    continue
 
                 # board-wide fall velocity from the leading edges
                 dt = now - last_t
