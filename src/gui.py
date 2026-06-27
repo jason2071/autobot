@@ -187,24 +187,14 @@ class App:
 
         self._refresh_windows()
 
-        # ── INPUT (always background multi-touch) + Fast capture ──────────
+        # ── INPUT (always background multi-touch, always PrintWindow) ─────
+        # BitBlt grabs the wrong layer for LDPlayer (child windows overlap),
+        # so capture is hard-wired to PrintWindow — the only reliable path.
         inp_row = ctk.CTkFrame(left, fg_color="transparent")
         inp_row.pack(fill="x")
         inp_row.columnconfigure(0, weight=1)
         ctk.CTkLabel(inp_row, text="INPUT", font=self.f_section,
                      text_color=MUTED).grid(row=0, column=0, sticky="w")
-
-        fc_grp = ctk.CTkFrame(inp_row, fg_color="transparent")
-        fc_grp.grid(row=0, column=1, sticky="e")
-        ctk.CTkLabel(fc_grp, text="Fast capture", font=self.f_sub,
-                     text_color=TEXT).pack(side="left", padx=(0, 5))
-        self.tiles_fast = tk.BooleanVar(value=False)  # printwindow = reliable for LDPlayer
-        ctk.CTkSwitch(
-            fc_grp, text="", variable=self.tiles_fast,
-            onvalue=True, offvalue=False,
-            progress_color=GREEN, button_color="#ffffff",
-            fg_color=FIELD, width=44,
-        ).pack(side="left")
 
         self._muted(
             left, "background multi-touch — no focus needed, plays while you\n"
@@ -327,11 +317,7 @@ class App:
             return
         if self.target_hwnd is not None:  # capture the window directly
             from .window_capture import WindowCapture
-            method = "bitblt" if self.tiles_fast.get() else "printwindow"
-            if method == "bitblt":  # BitBlt reads on-screen pixels -> raise it
-                self._focus_target()
-                time.sleep(0.15)  # let it come to front before grabbing
-            cap = WindowCapture(self.target_hwnd, method)
+            cap = WindowCapture(self.target_hwnd, "printwindow")
         else:
             cap = ScreenCapture()
         frame = cap.grab(region)
@@ -567,7 +553,7 @@ class App:
             tiles_note_colors=list(self.tiles_note_bgrs),
             tiles_helpers=self._helper_templates(),
             target_hwnd=self.target_hwnd,
-            window_method="bitblt" if self.tiles_fast.get() else "printwindow",
+            window_method="printwindow",
         )
 
     @staticmethod
