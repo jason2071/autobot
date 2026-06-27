@@ -37,11 +37,15 @@ class BotConfig:
                                    # missed (deaths at the song's high-speed end).
     tiles_min_run: int = 12        # min vertical run (px) to count as a tile
     tiles_merge_gap: int = 30      # bridge a tile's centre guide-line / gradient
-    tiles_lead_ms: float = 70.0    # press this long BEFORE the tile reaches the
+    tiles_lead_ms: float = 40.0    # press this long BEFORE the tile reaches the
                                    # line, to beat capture+inject+emulator lag.
                                    # The press fires when the tile is v*lead_s px
-                                   # above the line. Raise if taps land late
-                                   # ("กดไม่ทัน"), lower if they fire on empty.
+                                   # above the line — so a larger lead also widens
+                                   # the press zone (more reach, but more chance
+                                   # of catching a neighbour/background = a false
+                                   # tap). Tune live: raise if taps land late
+                                   # ("กดไม่ทัน"), lower if they fire on empty
+                                   # (instant death). 0 = press exactly at line.
     tiles_min_tap_ms: float = 30.0  # floor a tap's hold so the touch registers
     tiles_confirm_ms: float = 200.0  # after a press, wait up to this for the tile
                                      # to appear at the hit line; if it never does
