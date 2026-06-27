@@ -90,8 +90,9 @@ tile will reach the hit line, instead of reacting once it is already there.
     → taps fire on empty). When `tiles_auto_lead` is on, the bot sweeps a fixed
     set of lead values across attempts, measuring how long each SURVIVES, then
     locks the best — persisted to `~/.autobot_lead_cal.json` so the user just
-    retries and it converges. The GUI LEAD value seeds the sweep. Delete the
-    cal file to recalibrate.
+    retries and it converges. The sweep is a fixed set (`_LeadTuner.SWEEP`); the
+    GUI LEAD value is used only when `tiles_auto_lead` is OFF. Delete the cal file
+    to recalibrate.
   - **Reactive press floor** (in `_run_tiles`): besides the scheduled presses, a
     tile sitting ON the hit line that hasn't been pressed is tapped immediately.
     This covers the STATIC tile the game parks at the line waiting for a tap to

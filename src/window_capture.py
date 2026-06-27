@@ -59,7 +59,7 @@ class WindowCapture:
             try:
                 import dxcam
                 self._cam = dxcam.create(output_color="BGR")
-            except Exception as e:  # fall back to PrintWindow if dxcam missing
+            except Exception:  # fall back to PrintWindow if dxcam missing
                 self.method = "printwindow"
                 self._cam = None
 

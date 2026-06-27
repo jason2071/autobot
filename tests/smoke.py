@@ -138,13 +138,13 @@ def test_lead_tuner() -> None:
     p = os.path.join(tempfile.gettempdir(), "_smoke_lead_cal.json")
     if os.path.exists(p):
         os.remove(p)
-    t = _LeadTuner(p, 90)
+    t = _LeadTuner(p)
     assert t.current_ms() == 0, t.current_ms()   # sweeps the full set from the low end
     surv = {0: 1, 40: 1.5, 80: 2, 120: 3.5, 160: 5, 200: 4, 240: 2.5, 300: 1}
     for _ in range(len(_LeadTuner.SWEEP)):
         t.record(surv[t.current_ms()])
     assert t.locked == 160.0, t.locked            # locks the best-surviving lead
-    assert _LeadTuner(p, 90).current_ms() == 160.0, "persisted"  # carries across runs
+    assert _LeadTuner(p).current_ms() == 160.0, "persisted"  # carries across runs
     os.remove(p)
     print("  lead auto-tuner sweep+lock+persist OK")
 

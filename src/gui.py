@@ -187,9 +187,10 @@ class App:
 
         self._refresh_windows()
 
-        # ── INPUT (always background multi-touch, always PrintWindow) ─────
-        # BitBlt grabs the wrong layer for LDPlayer (child windows overlap),
-        # so capture is hard-wired to PrintWindow — the only reliable path.
+        # ── INPUT (always background multi-touch, capture via dxcam) ──────
+        # Capture is hard-wired to dxcam (DXGI duplication): ~0.1ms/grab and
+        # pixel-correct. BitBlt grabs the wrong GPU layer for LDPlayer; dxcam
+        # falls back to PrintWindow internally if unavailable.
         inp_row = ctk.CTkFrame(left, fg_color="transparent")
         inp_row.pack(fill="x")
         inp_row.columnconfigure(0, weight=1)
@@ -638,7 +639,7 @@ class App:
         m = msg.lower()
         if m.startswith("error") or "stopped:" in m:
             return RED
-        if "clicked" in m or m == "running":
+        if "clicked" in m or m.startswith("running"):
             return GREEN
         if "idle" in m:
             return AMBER

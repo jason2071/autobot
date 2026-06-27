@@ -23,7 +23,7 @@ class _LeadTuner:
 
     SWEEP = [0, 40, 80, 120, 160, 200, 240, 300]
 
-    def __init__(self, path: str, seed_ms: float) -> None:
+    def __init__(self, path: str) -> None:
         self.path = path
         self.results: dict[str, float] = {}
         self.i = 0   # always sweep the FULL set (low leads first) so the value
@@ -343,7 +343,7 @@ class BotEngine:
         tuner = None
         if cfg.tiles_auto_lead:
             cal = os.path.join(os.path.expanduser("~"), ".autobot_lead_cal.json")
-            tuner = _LeadTuner(cal, cfg.tiles_lead_ms)
+            tuner = _LeadTuner(cal)
         lead_ms = tuner.current_ms() if tuner else cfg.tiles_lead_ms
         lead_s = lead_ms / 1000.0
         min_tap_s = cfg.tiles_min_tap_ms / 1000.0
@@ -539,6 +539,10 @@ class BotEngine:
                     release_all()
                     prev_bottoms = None
                     prev_occ = [False] * lanes
+                    # drop pending presses: their absolute `t` is now in the past,
+                    # so without this they'd fire in a burst the instant gameplay
+                    # resumes (false taps at song start = instant death).
+                    queue.clear()
                     last_t = now
                     self._stop.wait(cfg.tiles_poll)
                     continue
