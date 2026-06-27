@@ -66,6 +66,28 @@ def tiles_dark_lanes(means: list[float], margin: float) -> list[bool]:
     return [m < bg - margin for m in means]
 
 
+def tiles_occupied_lanes(band, bands, margin: float) -> list[bool]:
+    """A lane is occupied when a tile sits ANYWHERE in the tall `band` (which
+    spans from the early press point down to the hit line).
+
+    Per lane, take the DARKEST horizontal row-mean — so a tile is seen wherever
+    it is in the band, without the dilution a whole-band mean would cause. This
+    is what lets the press fire early (tile enters the top of the band) AND the
+    hold continue until the tile clears the hit line (tile exits the bottom) —
+    which is what long notes need. Background = the median of the lanes' median
+    row-brightness, so it stays skin-independent (a few lit lanes don't drag it).
+    """
+    import numpy as np
+
+    darkest, bg_rows = [], []
+    for x0, x1 in bands:
+        rows = band[:, x0:x1].mean(axis=(1, 2))  # one mean per pixel row
+        darkest.append(float(rows.min()))
+        bg_rows.append(float(np.median(rows)))
+    bg = sorted(bg_rows)[len(bg_rows) // 2]
+    return [d < bg - margin for d in darkest]
+
+
 def tiles_dark_frac(
     lane_bands: list, margin: float, min_frac: float = 0.25
 ) -> list[bool]:
@@ -296,12 +318,15 @@ class BotEngine:
         src_grab = win.grab if win else cap.grab
         ox, oy = win.origin() if win else (0, 0)
 
-        # strip of pixels sampled `tiles_lead` px ABOVE the hit line, so a press
-        # fires before the tile reaches the line — compensates capture/input lag.
+        # TALL band from the early press point (`tiles_lead` px above the hit line)
+        # down to just past the hit line. Pressing keys off the TOP of this band
+        # (fires early, beats capture/input lag); the hold continues while a tile
+        # occupies ANY part of it, so a long note is held until it clears the hit
+        # line (the band's bottom). One grab; occupancy via tiles_occupied_lanes.
         sh = max(2, cfg.tiles_sample_h)
         hit_y = mon["top"] + int(H * cfg.tiles_hit)
         strip = {"top": hit_y - cfg.tiles_lead - sh // 2, "left": mon["left"],
-                 "width": mon["width"], "height": sh}
+                 "width": mon["width"], "height": cfg.tiles_lead + sh}
 
         # lane geometry in WINDOW-LOCAL coords; (ox, oy) is the window origin and
         # is refreshed every loop, so moving LDPlayer mid-play keeps the touches
@@ -359,8 +384,7 @@ class BotEngine:
 
         def _read_dark():
             frame = src_grab(strip)
-            means = [float(frame[:, x0:x1].mean()) for x0, x1 in bands]
-            active = tiles_dark_lanes(means, cfg.tiles_margin)
+            active = tiles_occupied_lanes(frame, bands, cfg.tiles_margin)
             for bgr in cfg.tiles_note_colors:  # OR in coloured notes / slides
                 col = tiles_color_lanes(frame, bands, bgr, cfg.tiles_note_tol)
                 active = [a or c for a, c in zip(active, col)]
