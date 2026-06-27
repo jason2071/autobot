@@ -69,10 +69,18 @@ tile will reach the hit line, instead of reacting once it is already there.
     (px/s), the EMA-median of the leading edges' per-frame motion. Tracks the
     song accelerating, so timing stays correct as it speeds up.
   - `occupancy_at` + `schedule_edges` — a single **trigger line** (`tiles_trig_
-    lead` above the hit line) is the dedup: a rising edge → schedule a press for
-    `now + (hit−trig)/v − lead`; a falling edge → a release. One tile = one
-    press + one release; multi-hold / chords fall out for free (one finger per
-    lane). `tiles_lead_ms` is the fixed input+emulator latency offset (tune live).
+    lead` above the hit line) is the dedup: a tile's bottom crossing it (rising
+    edge) schedules a **press** for `now + (hit−trig)/v − lead`. `tiles_lead_ms`
+    is the fixed input+emulator latency offset (tune live).
+  - **Release is reactive, not scheduled** (in `_run_tiles`): a press is held
+    until the tile actually clears the hit-line band (`occupancy_at(hit±band)`
+    falls, debounced). A press fired a few frames early (prediction jitter) is
+    held through the gap until the tile is first SEEN at the line; a press with
+    no tile behind it (phantom) is dropped after `tiles_confirm_ms` once the lane
+    is empty. A LATE release is harmless; an EARLY one drops a long note — which
+    was the "ตายตอนกดยาว" death (a velocity overshoot made a *scheduled* release
+    fire before the note's tail left the line). One tile = one press + one
+    release; multi-hold / chords fall out for free (one finger per lane).
   - `_run_tiles` ties it together: grab the whole board, segment, update
     velocity, sense+debounce the trigger occupancy, push scheduled events onto a
     per-lane queue, and actuate events whose time has arrived (with a `tiles_min_

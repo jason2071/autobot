@@ -36,6 +36,9 @@ class BotConfig:
     tiles_merge_gap: int = 30      # bridge a tile's centre guide-line / gradient
     tiles_lead_ms: float = 0.0     # fixed input+emulator latency offset (tune live)
     tiles_min_tap_ms: float = 30.0  # floor a tap's hold so the touch registers
+    tiles_confirm_ms: float = 200.0  # after a press, wait up to this for the tile
+                                     # to appear at the hit line; if it never does
+                                     # (a phantom press) release instead of holding
     # opt-in: also flag a lane active when it carries this note colour (BGR) —
     # detects bright/coloured notes and slides (the lit lane shifts across the
     # board, and the per-lane state machine follows it). A lane is active when it
@@ -252,6 +255,7 @@ class BotEngine:
         band = max(2, cfg.tiles_trig_band)
         lead_s = cfg.tiles_lead_ms / 1000.0
         min_tap_s = cfg.tiles_min_tap_ms / 1000.0
+        confirm_s = cfg.tiles_confirm_ms / 1000.0
 
         # lane geometry in WINDOW-LOCAL coords; (ox, oy) is the window origin and
         # is refreshed every loop, so moving LDPlayer mid-play keeps the touches
@@ -275,12 +279,15 @@ class BotEngine:
 
         down = [False] * lanes          # which lanes are currently held
         held_since = [0.0] * lanes
+        arrival = [0.0] * lanes          # predicted time the tile reaches the line
+        seen_hit = [False] * lanes       # tile confirmed at the hit line this hold
 
         def press(i, now):
             if not down[i]:
                 touch.down(i, ox + tx[i], oy + ty)
                 down[i] = True
                 held_since[i] = now
+                seen_hit[i] = False
 
         def release(i):
             if down[i]:
@@ -362,8 +369,9 @@ class BotEngine:
         v = 0.0
         prev_bottoms = None
         prev_occ = [False] * lanes
-        light_streak = [cfg.tiles_release_frames] * lanes
-        queue: list[predict.Event] = []  # scheduled press/release, abs monotonic
+        trig_streak = [cfg.tiles_release_frames] * lanes  # trigger-occ debounce
+        hit_streak = [cfg.tiles_release_frames] * lanes   # hit-occ debounce
+        queue: list[predict.Event] = []  # scheduled presses, absolute monotonic
         last_t = time.monotonic()
         last_active = 0.0  # last time any lane was active (a tile near the line)
 
@@ -376,7 +384,9 @@ class BotEngine:
             prev_bottoms = None
             prev_occ = [False] * lanes
             for i in range(lanes):
-                light_streak[i] = cfg.tiles_release_frames
+                trig_streak[i] = cfg.tiles_release_frames
+                hit_streak[i] = cfg.tiles_release_frames
+                seen_hit[i] = False
 
         self.on_status("running (tiles/predictive) — Esc to stop")
         try:
@@ -409,43 +419,58 @@ class BotEngine:
                 v = predict.update_velocity(v, prev_bottoms, bottoms, dt)
                 prev_bottoms = bottoms
 
-                # trigger-line occupancy, debounced, then edge-scheduled forward
-                occ = tiles_hysteresis(_trigger_occ(board, segs), light_streak,
+                # PRESS is predictive: a tile crossing the trigger schedules a
+                # press for when it will reach the hit line (must be on time).
+                # RELEASE is reactive: hold until the tile actually clears the
+                # hit line. A late release is harmless; an early one drops a long
+                # note (the fatal "ตายตอนกดยาว" bug — a velocity overshoot made
+                # the predicted release fire before the note's tail left the
+                # line). So releases are NOT scheduled — only the press edges are.
+                occ = tiles_hysteresis(_trigger_occ(board, segs), trig_streak,
                                        cfg.tiles_release_frames)
-                if any(occ) or any(down):
+                hit_occ = tiles_hysteresis(
+                    predict.occupancy_at(segs, hit_row - band, hit_row + band),
+                    hit_streak, cfg.tiles_release_frames)
+                if any(occ) or any(hit_occ) or any(down):
                     last_active = now
-                queue.extend(predict.schedule_edges(
-                    prev_occ, occ, v, y_trig, hit_row, now, lead_s))
+                queue.extend(e for e in predict.schedule_edges(
+                    prev_occ, occ, v, y_trig, hit_row, now, lead_s)
+                    if e.kind == "press")
                 prev_occ = occ
 
-                # actuate every event whose time has arrived. Process presses
-                # before releases this frame: ETA = (hit-trig)/v is recomputed
-                # from the live velocity, so as the song accelerates a tile's
-                # release (scheduled at a higher v) can fall due before its own
-                # press. Pressing first turns that into a clean tap; a release
-                # that arrives while the lane is still up (its press is queued in
-                # the future) instead CANCELS that pending press — otherwise the
-                # finger would be stranded down until the max-hold safety.
+                # fire due presses (record the predicted arrival time)
                 due = [e for e in queue if e.t <= now]
                 if due:
-                    keep = [e for e in queue if e.t > now]
-                    due.sort(key=lambda e: (e.kind != "press", e.t))
-                    for ev in due:
-                        if ev.kind == "press":
-                            press(ev.lane, now)
-                        elif not down[ev.lane]:
-                            keep = [e for e in keep
-                                    if not (e.lane == ev.lane and e.kind == "press")]
-                        elif now - held_since[ev.lane] < min_tap_s:
-                            ev.t = held_since[ev.lane] + min_tap_s  # hold the tap
-                            keep.append(ev)
-                        else:
-                            release(ev.lane)
-                    queue = keep
+                    queue = [e for e in queue if e.t > now]
+                    for ev in sorted(due, key=lambda e: e.t):
+                        press(ev.lane, now)
+                        arrival[ev.lane] = now + lead_s
 
-                # safety: force-release a lane stuck down past the max hold
+                # reactive release. A tile occupies the hit line from arrival
+                # until its tail clears; hold for exactly that span:
+                #  - keep holding until the tile is first SEEN at the hit band
+                #    (so a press fired a few frames early — the prediction's
+                #    jitter — is not released in the gap before the tile lands;
+                #    that gap-release was the long-note death),
+                #  - then release once it clears (hit band empty + min-tap floor),
+                #  - if it never appears within `confirm_s`, it was a phantom
+                #    press → release so the lane isn't blocked,
+                #  - max-hold is the final backstop.
                 for i in range(lanes):
-                    if down[i] and now - held_since[i] > cfg.tiles_max_hold:
+                    if not down[i]:
+                        continue
+                    if hit_occ[i]:
+                        seen_hit[i] = True
+                    held = now - held_since[i]
+                    if held > cfg.tiles_max_hold:
+                        release(i)
+                    elif seen_hit[i] and not hit_occ[i] and held >= min_tap_s:
+                        release(i)
+                    elif (not seen_hit[i] and held > confirm_s and not segs[i]):
+                        # confirm window elapsed and the lane is now EMPTY — the
+                        # press had no tile behind it (phantom). If a tile is
+                        # still descending in this lane we keep holding (the press
+                        # just fired early — don't release into the gap).
                         release(i)
 
                 self._stop.wait(cfg.tiles_poll)
