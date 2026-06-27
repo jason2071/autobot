@@ -413,8 +413,13 @@ class BotEngine:
                     if not locked:           # auto-lock onto the real board
                         _recalibrate(src_grab(mon))
                     if helpers and _scan_helpers(src_grab(None)):
+                        # Resume play almost immediately: the song's first tile
+                        # falls within ~0.2s of tapping START, so a long pause
+                        # here misses it and ends the run at 1 point. The next
+                        # helper scan is throttled by tiles_helper_interval, so
+                        # this short settle won't re-tap the same button.
                         prev = [False] * lanes
-                        self._stop.wait(0.4)
+                        self._stop.wait(0.1)
                         continue
 
                 dark = tiles_hysteresis(
