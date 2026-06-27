@@ -139,7 +139,7 @@ def test_lead_tuner() -> None:
     if os.path.exists(p):
         os.remove(p)
     t = _LeadTuner(p, 90)
-    assert t.current_ms() == 80, t.current_ms()  # starts nearest the seed
+    assert t.current_ms() == 0, t.current_ms()   # sweeps the full set from the low end
     surv = {0: 1, 40: 1.5, 80: 2, 120: 3.5, 160: 5, 200: 4, 240: 2.5, 300: 1}
     for _ in range(len(_LeadTuner.SWEEP)):
         t.record(surv[t.current_ms()])

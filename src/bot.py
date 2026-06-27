@@ -26,13 +26,10 @@ class _LeadTuner:
     def __init__(self, path: str, seed_ms: float) -> None:
         self.path = path
         self.results: dict[str, float] = {}
-        self.i = 0
+        self.i = 0   # always sweep the FULL set (low leads first) so the value
+                     # matching this machine's latency is never skipped
         self.locked: float | None = None
         self._load()
-        if self.locked is None and not self.results:
-            # start the sweep nearest the seed (the GUI LEAD value)
-            self.i = min(range(len(self.SWEEP)),
-                         key=lambda k: abs(self.SWEEP[k] - seed_ms))
 
     def current_ms(self) -> float:
         return self.locked if self.locked is not None else self.SWEEP[self.i]
@@ -48,10 +45,14 @@ class _LeadTuner:
                 self.locked = float(best)
         self._save()
 
+    VERSION = 2  # bump to invalidate stale calibration state on upgrade
+
     def _load(self) -> None:
         try:
             with open(self.path) as f:
                 d = json.load(f)
+            if d.get("v") != self.VERSION:
+                return  # stale (older sweep logic) — start fresh
             self.results = d.get("results", {})
             self.i = d.get("i", 0)
             self.locked = d.get("locked")
@@ -61,8 +62,8 @@ class _LeadTuner:
     def _save(self) -> None:
         try:
             with open(self.path, "w") as f:
-                json.dump({"results": self.results, "i": self.i,
-                           "locked": self.locked}, f)
+                json.dump({"v": self.VERSION, "results": self.results,
+                           "i": self.i, "locked": self.locked}, f)
         except Exception:
             pass
 
