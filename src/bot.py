@@ -31,7 +31,10 @@ class BotConfig:
     # velocity, so it keeps up as the song speeds up.
     tiles_play_top: float = 0.18   # ignore the score-header UI above this (frac H)
     tiles_trig_lead: float = 0.25  # trigger line this frac of H ABOVE the hit line
-    tiles_trig_band: int = 12      # trigger sense band half-thickness (px)
+    tiles_trig_band: int = 28      # trigger sense band half-thickness (px). Must
+                                   # exceed a tile's per-frame travel or a fast
+                                   # tile jumps the band between frames and is
+                                   # missed (deaths at the song's high-speed end).
     tiles_min_run: int = 12        # min vertical run (px) to count as a tile
     tiles_merge_gap: int = 30      # bridge a tile's centre guide-line / gradient
     tiles_lead_ms: float = 0.0     # fixed input+emulator latency offset (tune live)
@@ -428,8 +431,11 @@ class BotEngine:
                 # line). So releases are NOT scheduled — only the press edges are.
                 occ = tiles_hysteresis(_trigger_occ(board, segs), trig_streak,
                                        cfg.tiles_release_frames)
+                # hit zone extends UP by 2*band so a fast tile (large px/frame at
+                # the song's high-speed end) is still caught for >=1 frame and
+                # the reactive press / release don't skip over it.
                 hit_occ = tiles_hysteresis(
-                    predict.occupancy_at(segs, hit_row - band, hit_row + band),
+                    predict.occupancy_at(segs, hit_row - 2 * band, hit_row + band),
                     hit_streak, cfg.tiles_release_frames)
                 if any(occ) or any(hit_occ) or any(down):
                     last_active = now
