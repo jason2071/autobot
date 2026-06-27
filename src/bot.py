@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -9,6 +11,60 @@ from typing import Callable
 
 from .capture import ScreenCapture
 from . import detector
+
+
+class _LeadTuner:
+    """Auto-calibrate the press LEAD (ms) to the real input+emulator latency by
+    maximizing how long the bot SURVIVES per attempt. Sweeps a fixed set of lead
+    values once (one attempt each), keeps the best, then locks it. State is
+    persisted so it carries across engine restarts — the user just keeps
+    retrying and the bot converges on the lead that survives longest.
+    """
+
+    SWEEP = [0, 40, 80, 120, 160, 200, 240, 300]
+
+    def __init__(self, path: str, seed_ms: float) -> None:
+        self.path = path
+        self.results: dict[str, float] = {}
+        self.i = 0
+        self.locked: float | None = None
+        self._load()
+        if self.locked is None and not self.results:
+            # start the sweep nearest the seed (the GUI LEAD value)
+            self.i = min(range(len(self.SWEEP)),
+                         key=lambda k: abs(self.SWEEP[k] - seed_ms))
+
+    def current_ms(self) -> float:
+        return self.locked if self.locked is not None else self.SWEEP[self.i]
+
+    def record(self, survival_s: float) -> None:
+        """Log this attempt's survival for the current lead, advance the sweep."""
+        lead = self.current_ms()
+        self.results[str(lead)] = max(self.results.get(str(lead), 0.0), survival_s)
+        if self.locked is None:
+            self.i += 1
+            if self.i >= len(self.SWEEP):
+                best = max(self.results, key=lambda k: self.results[k])
+                self.locked = float(best)
+        self._save()
+
+    def _load(self) -> None:
+        try:
+            with open(self.path) as f:
+                d = json.load(f)
+            self.results = d.get("results", {})
+            self.i = d.get("i", 0)
+            self.locked = d.get("locked")
+        except Exception:
+            pass
+
+    def _save(self) -> None:
+        try:
+            with open(self.path, "w") as f:
+                json.dump({"results": self.results, "i": self.i,
+                           "locked": self.locked}, f)
+        except Exception:
+            pass
 
 
 @dataclass
@@ -52,6 +108,8 @@ class BotConfig:
                                    # missed (deaths at the song's high-speed end).
     tiles_min_run: int = 12        # min vertical run (px) to count as a tile
     tiles_merge_gap: int = 30      # bridge a tile's centre guide-line / gradient
+    tiles_auto_lead: bool = True   # auto-calibrate LEAD to real latency across
+                                   # attempts (maximize survival); LEAD is the seed
     tiles_lead_ms: float = 90.0    # press this long BEFORE the tile reaches the
                                    # line, to beat capture+inject+emulator lag.
                                    # The press fires when the tile is v*lead_s px
@@ -279,9 +337,19 @@ class BotEngine:
         y_hi = min(H, hit_row + 40)
         y_trig = hit_row - int(H * cfg.tiles_trig_lead)
         band = max(2, cfg.tiles_trig_band)
-        lead_s = cfg.tiles_lead_ms / 1000.0
+        # auto-lead tuner: sweeps LEAD across attempts to the value that survives
+        # longest (persisted). lead_s is then updated per attempt.
+        tuner = None
+        if cfg.tiles_auto_lead:
+            cal = os.path.join(os.path.expanduser("~"), ".autobot_lead_cal.json")
+            tuner = _LeadTuner(cal, cfg.tiles_lead_ms)
+        lead_ms = tuner.current_ms() if tuner else cfg.tiles_lead_ms
+        lead_s = lead_ms / 1000.0
         min_tap_s = cfg.tiles_min_tap_ms / 1000.0
         confirm_s = cfg.tiles_confirm_ms / 1000.0
+        in_play = False        # currently inside a gameplay streak
+        streak_start = 0.0     # monotonic time the current streak began
+        MIN_STREAK = 1.5       # ignore streaks shorter than this (noise, not an attempt)
 
         # lane geometry in WINDOW-LOCAL coords; (ox, oy) is the window origin and
         # is refreshed every loop, so moving LDPlayer mid-play keeps the touches
@@ -457,12 +525,25 @@ class BotEngine:
                 # the bot never taps random UI. last_active is left stale so the
                 # quiet-gated helper scan above takes over (START / close ad).
                 if not gameplay:
+                    # gameplay streak ended (died / left to a menu): score this
+                    # attempt's survival and let the tuner pick the next lead.
+                    if in_play:
+                        if tuner is not None and now - streak_start >= MIN_STREAK:
+                            tuner.record(now - streak_start)
+                            lead_s = tuner.current_ms() / 1000.0
+                            self.on_status(
+                                f"lead auto: {tuner.current_ms():.0f}ms "
+                                f"(survived {now - streak_start:.1f}s)")
+                        in_play = False
                     release_all()
                     prev_bottoms = None
                     prev_occ = [False] * lanes
                     last_t = now
                     self._stop.wait(cfg.tiles_poll)
                     continue
+                if not in_play:        # gameplay (re)started — begin a streak
+                    in_play = True
+                    streak_start = now
 
                 # board-wide fall velocity from the leading edges
                 dt = now - last_t

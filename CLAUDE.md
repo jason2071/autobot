@@ -80,6 +80,13 @@ tile will reach the hit line, instead of reacting once it is already there.
     lead` above the hit line) is the dedup: a tile's bottom crossing it (rising
     edge) schedules a **press** for `now + (hit−trig)/v − lead`. `tiles_lead_ms`
     is the fixed input+emulator latency offset (tune live).
+  - **Auto-lead tuner** (`_LeadTuner` in `src/bot.py`): the press LEAD must match
+    the real input+emulator latency (too low → taps land late and miss; too high
+    → taps fire on empty). When `tiles_auto_lead` is on, the bot sweeps a fixed
+    set of lead values across attempts, measuring how long each SURVIVES, then
+    locks the best — persisted to `~/.autobot_lead_cal.json` so the user just
+    retries and it converges. The GUI LEAD value seeds the sweep. Delete the
+    cal file to recalibrate.
   - **Reactive press floor** (in `_run_tiles`): besides the scheduled presses, a
     tile sitting ON the hit line that hasn't been pressed is tapped immediately.
     This covers the STATIC tile the game parks at the line waiting for a tap to

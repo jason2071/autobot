@@ -132,6 +132,23 @@ def test_predict_logic() -> None:
     print("  predict segments + velocity + edge scheduling OK")
 
 
+def test_lead_tuner() -> None:
+    import tempfile
+    from src.bot import _LeadTuner
+    p = os.path.join(tempfile.gettempdir(), "_smoke_lead_cal.json")
+    if os.path.exists(p):
+        os.remove(p)
+    t = _LeadTuner(p, 90)
+    assert t.current_ms() == 80, t.current_ms()  # starts nearest the seed
+    surv = {0: 1, 40: 1.5, 80: 2, 120: 3.5, 160: 5, 200: 4, 240: 2.5, 300: 1}
+    for _ in range(len(_LeadTuner.SWEEP)):
+        t.record(surv[t.current_ms()])
+    assert t.locked == 160.0, t.locked            # locks the best-surviving lead
+    assert _LeadTuner(p, 90).current_ms() == 160.0, "persisted"  # carries across runs
+    os.remove(p)
+    print("  lead auto-tuner sweep+lock+persist OK")
+
+
 def test_tiles_hysteresis() -> None:
     # a long tile with a 2-frame bright flicker must NOT release (release_frames=3)
     streak = [3]
@@ -220,6 +237,7 @@ def main() -> None:
         ("clicker/scale", test_clicker_scale),
         ("tiles/logic", test_tiles_logic),
         ("predict/logic", test_predict_logic),
+        ("lead/tuner", test_lead_tuner),
         ("tiles/hysteresis", test_tiles_hysteresis),
         ("tiles/screenshots", test_tiles_on_screenshots),
         ("tiles/game-cases", test_tiles_game_cases),
