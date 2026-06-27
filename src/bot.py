@@ -66,26 +66,23 @@ def tiles_dark_lanes(means: list[float], margin: float) -> list[bool]:
     return [m < bg - margin for m in means]
 
 
-def tiles_occupied_lanes(band, bands, margin: float) -> list[bool]:
-    """A lane is occupied when a tile sits ANYWHERE in the tall `band` (which
-    spans from the early press point down to the hit line).
+def tiles_occupied_lanes(band, bands, sh: int, margin: float) -> list[bool]:
+    """A lane is occupied when a tile sits at the PRESS strip (top of `band`) OR
+    at the hit-line strip (bottom of `band`).
 
-    Per lane, take the DARKEST horizontal row-mean — so a tile is seen wherever
-    it is in the band, without the dilution a whole-band mean would cause. This
-    is what lets the press fire early (tile enters the top of the band) AND the
-    hold continue until the tile clears the hit line (tile exits the bottom) —
-    which is what long notes need. Background = the median of the lanes' median
-    row-brightness, so it stays skin-independent (a few lit lanes don't drag it).
+    Two THIN strips, each judged by the conventional band-mean vs the median lane
+    (tiles_dark_lanes) — conservative, so the busy background does not false-fire
+    the way a darkest-row test over the whole band does. The top strip fires the
+    press early; OR-ing the bottom (hit-line) strip keeps a long note held until
+    it actually clears the hit line. Release hysteresis bridges the small gap
+    between the two strips so a tile passing through is not dropped.
     """
-    import numpy as np
-
-    darkest, bg_rows = [], []
-    for x0, x1 in bands:
-        rows = band[:, x0:x1].mean(axis=(1, 2))  # one mean per pixel row
-        darkest.append(float(rows.min()))
-        bg_rows.append(float(np.median(rows)))
-    bg = sorted(bg_rows)[len(bg_rows) // 2]
-    return [d < bg - margin for d in darkest]
+    top = band[:sh]
+    bot = band[-sh:]
+    tm = [float(top[:, x0:x1].mean()) for x0, x1 in bands]
+    bm = [float(bot[:, x0:x1].mean()) for x0, x1 in bands]
+    return [t or b for t, b in
+            zip(tiles_dark_lanes(tm, margin), tiles_dark_lanes(bm, margin))]
 
 
 def tiles_dark_frac(
@@ -384,7 +381,7 @@ class BotEngine:
 
         def _read_dark():
             frame = src_grab(strip)
-            active = tiles_occupied_lanes(frame, bands, cfg.tiles_margin)
+            active = tiles_occupied_lanes(frame, bands, sh, cfg.tiles_margin)
             for bgr in cfg.tiles_note_colors:  # OR in coloured notes / slides
                 col = tiles_color_lanes(frame, bands, bgr, cfg.tiles_note_tol)
                 active = [a or c for a, c in zip(active, col)]
