@@ -14,6 +14,7 @@ import numpy as np
 
 from src import detector, clicker, bot
 from src.capture import ScreenCapture
+from tests.predict_replay import test_predict_replay
 
 
 def test_template_match() -> None:
@@ -241,6 +242,7 @@ def main() -> None:
         ("tiles/screenshots", test_tiles_on_screenshots),
         ("tiles/game-cases", test_tiles_game_cases),
         ("tiles/helpers", test_helper_templates),
+        ("predict/replay", test_predict_replay),
     ]:
         print(f"[{name}]")
         fn()
