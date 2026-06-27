@@ -54,6 +54,9 @@ class _POINTER_TOUCH_INFO(ctypes.Structure):
 class TouchInjector:
     """Multi-finger touch injector. `slot` is the lane index (one finger each)."""
 
+    # Reserved slot for the permanent anchor contact (see set_anchor).
+    ANCHOR_SLOT = 100
+
     def __init__(self, max_contacts: int = 10) -> None:
         if not _OK:
             raise RuntimeError("touch injection needs Windows (user32)")
@@ -113,6 +116,19 @@ class TouchInjector:
         if hold:
             time.sleep(hold)
         self.up(slot)
+
+    def set_anchor(self, x: int, y: int) -> None:
+        """Hold one PRIMARY contact down permanently at a harmless point.
+
+        Windows promotes the *primary* touch pointer to a mouse move on UP, which
+        jerks the real cursor to the touch point. By parking a permanent anchor
+        as the primary pointer, every lane tap that follows is a *secondary*
+        contact — so taps never move the cursor (the cursor only ever parks once,
+        at the anchor). Call this BEFORE any lane down so the anchor owns primary.
+        Anchor it on a non-interactive spot (e.g. the window's letterbox margin)
+        so the held contact triggers no game action and no desktop press-and-hold.
+        """
+        self.down(self.ANCHOR_SLOT, x, y)
 
     def up_all(self) -> None:
         for slot in list(self._pos):
