@@ -446,6 +446,18 @@ class BotEngine:
                         press(ev.lane, now)
                         arrival[ev.lane] = now + lead_s
 
+                # reactive press floor: a tile sitting ON the hit line that we
+                # have not pressed yet. Covers the STATIC tile the game parks at
+                # the line waiting for a tap to start / continue (velocity is 0,
+                # so nothing schedules it) and any moving tile the prediction
+                # missed. Pressing a tile that is already at the line is always
+                # correct; for moving tiles the predictive press fired earlier so
+                # the lane is already down and this is a no-op.
+                for i in range(lanes):
+                    if hit_occ[i] and not down[i]:
+                        press(i, now)
+                        arrival[i] = now
+
                 # reactive release. A tile occupies the hit line from arrival
                 # until its tail clears; hold for exactly that span:
                 #  - keep holding until the tile is first SEEN at the hit band

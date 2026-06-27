@@ -72,6 +72,13 @@ tile will reach the hit line, instead of reacting once it is already there.
     lead` above the hit line) is the dedup: a tile's bottom crossing it (rising
     edge) schedules a **press** for `now + (hit−trig)/v − lead`. `tiles_lead_ms`
     is the fixed input+emulator latency offset (tune live).
+  - **Reactive press floor** (in `_run_tiles`): besides the scheduled presses, a
+    tile sitting ON the hit line that hasn't been pressed is tapped immediately.
+    This covers the STATIC tile the game parks at the line waiting for a tap to
+    start / continue (velocity 0 → nothing schedules it — the bot would otherwise
+    sit forever) and any moving tile the prediction missed. For moving tiles the
+    predictive press already fired earlier, so the lane is down and this is a
+    no-op; release is gated on the hit band going empty, so it never double-taps.
   - **Release is reactive, not scheduled** (in `_run_tiles`): a press is held
     until the tile actually clears the hit-line band (`occupancy_at(hit±band)`
     falls, debounced). A press fired a few frames early (prediction jitter) is
