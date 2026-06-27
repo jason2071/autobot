@@ -36,6 +36,11 @@ Tests of detection on real captures **skip themselves** when the asset is
 missing (`templates/*.png` and `*.mp4` are gitignored), so a clean checkout
 still passes.
 
+`tests/predict_replay.py` is the **offline timing gate** for the predictive
+tracker — it replays `predict.py` over `templates/gameplay*.mp4` and asserts on
+press-time jitter. Run with `python -m tests.predict_replay`; it also skips
+itself on a clean checkout (no clip present).
+
 ## Architecture
 
 Data flows: **capture → per-lane segmentation → velocity + scheduling → input**,
