@@ -20,9 +20,10 @@ class BotConfig:
     # a lane has a tile when its brightness is this far BELOW the lane median
     # (relative, so it works for any skin: black, blue, etc.)
     tiles_margin: int = 40
-    tiles_sample_h: int = 18     # taller strip = catches faster tiles between polls
-    tiles_lead: int = 12         # sample this many px ABOVE the hit line, so the
+    tiles_sample_h: int = 30     # taller strip = catches faster tiles between polls
+    tiles_lead: int = 28         # sample this many px ABOVE the hit line, so the
                                  # press fires earlier and beats capture/input lag
+                                 # (PrintWindow ~15ms/frame needs a bigger lead)
     tiles_poll: float = 0.001    # seconds between scans (fast; tiles speed up)
     tiles_max_hold: float = 4.0  # force-release a hold after this many seconds
     tiles_release_frames: int = 3  # frames of light before releasing (debounce)
@@ -44,8 +45,8 @@ class BotConfig:
     # region is window-local. window_method: "bitblt" (fast) keeps the window
     # visible; "printwindow" (slower) is immune to other apps overlapping it.
     target_hwnd: int | None = None
-    window_method: str = "bitblt"  # fast/low-latency default (keeps up with the
-                                   # game); "printwindow" = slower, capture covered
+    window_method: str = "printwindow"  # reliable for LDPlayer (bitblt can grab a
+                                        # stale/wrong layer); "bitblt" = faster
     # helper templates clicked on sight (e.g. retry / start buttons between songs)
     tiles_helpers: list[str] = field(default_factory=list)
     tiles_helper_threshold: float = 0.8

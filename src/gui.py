@@ -198,7 +198,7 @@ class App:
         fc_grp.grid(row=0, column=1, sticky="e")
         ctk.CTkLabel(fc_grp, text="Fast capture", font=self.f_sub,
                      text_color=TEXT).pack(side="left", padx=(0, 5))
-        self.tiles_fast = tk.BooleanVar(value=True)
+        self.tiles_fast = tk.BooleanVar(value=False)  # printwindow = reliable for LDPlayer
         ctk.CTkSwitch(
             fc_grp, text="", variable=self.tiles_fast,
             onvalue=True, offvalue=False,
@@ -221,10 +221,22 @@ class App:
 
         # ══════════════ RIGHT COLUMN — SLIDERS + COLOR + START ════════════
 
-        # ── HIT LINE % — calibration-critical ─────────────────────────────
+        # ── HIT LINE % | TAP LEAD — side by side ──────────────────────────
+        hl = ctk.CTkFrame(right, fg_color="transparent")
+        hl.pack(fill="x")
+        hl.columnconfigure((0, 1), weight=1, uniform="sl")
+        c_hit = ctk.CTkFrame(hl, fg_color="transparent")
+        c_hit.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        c_lead = ctk.CTkFrame(hl, fg_color="transparent")
+        c_lead.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+
         self.tiles_hit = tk.IntVar(value=80)
-        self._slider_group(right, "HIT LINE %", self.tiles_hit,
+        self._slider_group(c_hit, "HIT LINE %", self.tiles_hit,
                            50, 98, 48, "tiles_hit_label", 80)
+        # TAP LEAD — raise if it taps late ("กดไม่ทัน"), lower if too early
+        self.tiles_lead = tk.IntVar(value=28)
+        self._slider_group(c_lead, "TAP LEAD (px)", self.tiles_lead,
+                           0, 80, 80, "tiles_lead_label", 28)
 
         # ── CONTRAST | HOLD EXTRA — side by side ──────────────────────────
         sg = ctk.CTkFrame(right, fg_color="transparent")
@@ -549,6 +561,7 @@ class App:
         return BotConfig(
             region=self._parse_region(),
             tiles_hit=self.tiles_hit.get() / 100.0,
+            tiles_lead=self.tiles_lead.get(),
             tiles_margin=self.tiles_margin.get(),
             tiles_hold_extra=self.tiles_hold_extra.get(),
             tiles_note_colors=list(self.tiles_note_bgrs),
