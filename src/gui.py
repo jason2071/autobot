@@ -226,9 +226,9 @@ class App:
         # LEAD (ms) — fixed input+emulator latency offset. Raise if taps land
         # late ("กดไม่ทัน"), lower if they fire too early. Predictive timing
         # makes this a constant, not a race.
-        self.tiles_lead_ms = tk.IntVar(value=0)
+        self.tiles_lead_ms = tk.IntVar(value=70)
         self._slider_group(c_lead, "LEAD (ms)", self.tiles_lead_ms,
-                           0, 200, 40, "tiles_lead_ms_label", 0)
+                           0, 200, 40, "tiles_lead_ms_label", 70)
 
         # ── CONTRAST | HOLD EXTRA — side by side ──────────────────────────
         sg = ctk.CTkFrame(right, fg_color="transparent")

@@ -37,7 +37,11 @@ class BotConfig:
                                    # missed (deaths at the song's high-speed end).
     tiles_min_run: int = 12        # min vertical run (px) to count as a tile
     tiles_merge_gap: int = 30      # bridge a tile's centre guide-line / gradient
-    tiles_lead_ms: float = 0.0     # fixed input+emulator latency offset (tune live)
+    tiles_lead_ms: float = 70.0    # press this long BEFORE the tile reaches the
+                                   # line, to beat capture+inject+emulator lag.
+                                   # The press fires when the tile is v*lead_s px
+                                   # above the line. Raise if taps land late
+                                   # ("กดไม่ทัน"), lower if they fire on empty.
     tiles_min_tap_ms: float = 30.0  # floor a tap's hold so the touch registers
     tiles_confirm_ms: float = 200.0  # after a press, wait up to this for the tile
                                      # to appear at the hit line; if it never does
@@ -373,6 +377,7 @@ class BotEngine:
         prev_bottoms = None
         prev_occ = [False] * lanes
         trig_streak = [cfg.tiles_release_frames] * lanes  # trigger-occ debounce
+        press_streak = [cfg.tiles_release_frames] * lanes  # early press-zone debounce
         hit_streak = [cfg.tiles_release_frames] * lanes   # hit-occ debounce
         queue: list[predict.Event] = []  # scheduled presses, absolute monotonic
         last_t = time.monotonic()
@@ -388,6 +393,7 @@ class BotEngine:
             prev_occ = [False] * lanes
             for i in range(lanes):
                 trig_streak[i] = cfg.tiles_release_frames
+                press_streak[i] = cfg.tiles_release_frames
                 hit_streak[i] = cfg.tiles_release_frames
                 seen_hit[i] = False
 
@@ -431,11 +437,23 @@ class BotEngine:
                 # line). So releases are NOT scheduled — only the press edges are.
                 occ = tiles_hysteresis(_trigger_occ(board, segs), trig_streak,
                                        cfg.tiles_release_frames)
-                # hit zone extends UP by 2*band so a fast tile (large px/frame at
-                # the song's high-speed end) is still caught for >=1 frame and
-                # the reactive press / release don't skip over it.
+                # PRESS zone reaches UP from the line by the distance a tile
+                # travels during the lead time (v*lead_s) plus a base band, so
+                # the press fires early enough that — after capture+inject+
+                # emulator lag — the tap lands while the tile is on the line.
+                # Without this the reactive press fires only once the tile is AT
+                # the line and the real tap lands late (a miss → death). The base
+                # also keeps a fast tile from jumping the zone between frames.
+                lead_px = int(v * lead_s) if v > 0 else 0
+                press_occ = tiles_hysteresis(
+                    predict.occupancy_at(segs, hit_row - 2 * band - lead_px,
+                                         hit_row + band),
+                    press_streak, cfg.tiles_release_frames)
+                # RELEASE/seen uses the tight band at the line: hold until the
+                # tile actually clears the line (a tap is brief, a long note
+                # holds), independent of the early-press lead.
                 hit_occ = tiles_hysteresis(
-                    predict.occupancy_at(segs, hit_row - 2 * band, hit_row + band),
+                    predict.occupancy_at(segs, hit_row - band, hit_row + band),
                     hit_streak, cfg.tiles_release_frames)
                 if any(occ) or any(hit_occ) or any(down):
                     last_active = now
@@ -460,9 +478,9 @@ class BotEngine:
                 # correct; for moving tiles the predictive press fired earlier so
                 # the lane is already down and this is a no-op.
                 for i in range(lanes):
-                    if hit_occ[i] and not down[i]:
+                    if press_occ[i] and not down[i]:
                         press(i, now)
-                        arrival[i] = now
+                        arrival[i] = now + lead_s
 
                 # reactive release. A tile occupies the hit line from arrival
                 # until its tail clears; hold for exactly that span:
