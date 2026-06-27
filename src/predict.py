@@ -59,39 +59,59 @@ def _merge(runs: list[tuple[int, int]], gap: int) -> list[tuple[int, int]]:
     return out
 
 
+def tile_mask(
+    frame, dark_v: int = 60, hue_lo: int = 90, hue_hi: int = 110,
+    sat_min: int = 140, extra_hues: tuple = (),
+) -> "np.ndarray":
+    """A precise boolean tile mask: a pixel is a tile when it is very DARK
+    (V < dark_v → black tap tiles) OR strongly COLOURED in the note hue band
+    (blue/cyan long notes: hue in [hue_lo, hue_hi] with S >= sat_min). Tuned to
+    cleanly reject the bright, busy backgrounds (V > 200, low-sat decorations)
+    that defeat relative-darkness — measured on the real skin: tap V<32, blue
+    H≈99 S>150, background V>227. `extra_hues` adds (hue, tol) pairs for other
+    note colours.
+    """
+    import cv2
+
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    mask = (V < dark_v) | ((H >= hue_lo) & (H <= hue_hi) & (S >= sat_min))
+    for hue, tol in extra_hues:
+        mask |= (np.abs(H.astype(int) - hue) <= tol) & (S >= sat_min)
+    return mask
+
+
 def lane_segments(
     board, bands, margin: float, min_run: int = 12, dark_frac: float = 0.5,
-    y_lo: int = 0, y_hi: int | None = None, merge_gap: int = 24,
+    y_lo: int = 0, y_hi: int | None = None, merge_gap: int = 24, mask=None,
 ) -> list[list[tuple[int, int]]]:
     """Per lane, the vertical spans of tiles as (y_top, y_bottom) in board-y.
 
-    A board row is "occupied" in a lane when the fraction of pixels darker than
-    `bg - margin` exceeds `dark_frac`, where `bg` is the board's median
-    brightness (relative → skin-independent, same idea as `tiles_dark_lanes` /
-    `tiles_dark_frac`). Rows outside `[y_lo, y_hi)` are ignored — this clips the
-    persistent dark UI (score header at the top, keyboard/hit-zone below the
-    line) that would otherwise look like stuck tiles. Raw runs are then merged
-    across small gaps (`merge_gap`) and the survivors >= `min_run` are returned.
+    A board row is "occupied" in a lane when the fraction of tile pixels in it
+    exceeds `dark_frac`. With a precomputed boolean `mask` (see `tile_mask`),
+    tile pixels are exactly the mask — precise on bright/busy skins. Without a
+    mask, it falls back to relative darkness (pixels darker than the board
+    median by `margin`) — skin-independent but noisier. Rows outside
+    `[y_lo, y_hi)` are ignored (clips the score header / keyboard UI). Raw runs
+    are merged across `merge_gap` and survivors >= `min_run` are returned.
 
     `board` is the full board image (BGR or gray); `bands` is the list of
     (x0, x1) lane columns from `tiles_lane_geometry`.
     """
     import cv2
 
-    gray = board if board.ndim == 2 else cv2.cvtColor(board, cv2.COLOR_BGR2GRAY)
-    gray = gray.astype(np.int16)
-    h = gray.shape[0]
+    h = board.shape[0]
     lo = max(0, y_lo)
     hi = h if y_hi is None else min(y_hi, h)
-    bg = float(np.median(gray))
-    thr = bg - margin
+    if mask is None:
+        gray = board if board.ndim == 2 else cv2.cvtColor(board, cv2.COLOR_BGR2GRAY)
+        mask = gray.astype(np.int16) < (float(np.median(gray)) - margin)
     out: list[list[tuple[int, int]]] = []
     # scan only rows in [lo, hi): everything outside is cropped UI, and limiting
     # the per-row run scan to the play area keeps the hot loop cheap. Runs are
     # offset back to board-y by `lo`.
     for x0, x1 in bands:
-        col = gray[lo:hi, x0:x1]
-        occ = (col < thr).mean(axis=1) > dark_frac  # bool per row in [lo, hi)
+        occ = mask[lo:hi, x0:x1].mean(axis=1) > dark_frac  # bool per row
         runs = _merge(_raw_runs(occ), merge_gap)
         out.append([(a + lo, b + lo) for a, b in runs if b - a + 1 >= min_run])
     return out

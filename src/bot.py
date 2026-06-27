@@ -20,7 +20,16 @@ class BotConfig:
     # a lane has a tile when its brightness is this far BELOW the lane median
     # (relative, so it works for any skin: black, blue, etc.)
     tiles_margin: int = 40       # a row is "dark" when this far below board median
-    tiles_dark_frac: float = 0.5  # fraction of a lane row that must be dark
+    tiles_dark_frac: float = 0.5  # fraction of a lane row that must be tile pixels
+    # precise tile mask (see predict.tile_mask): a pixel is a tile when very DARK
+    # (V < tiles_dark_v → black taps) OR in the note hue band (blue/cyan long
+    # notes). Cleanly rejects bright/busy backgrounds that defeat relative
+    # darkness — the false taps that were killing runs. tiles_note_colors adds
+    # extra note hues.
+    tiles_dark_v: int = 60
+    tiles_hue_lo: int = 90
+    tiles_hue_hi: int = 110
+    tiles_sat_min: int = 140
     tiles_poll: float = 0.001    # seconds between scans (fast; tiles speed up)
     tiles_max_hold: float = 4.0  # force-release a hold after this many seconds
     tiles_release_frames: int = 3  # frames of light before releasing (debounce)
@@ -329,20 +338,27 @@ class BotEngine:
         except Exception:
             listener = None
 
+        # extra note hues (from configured BGR colours) for the tile mask
+        import cv2 as _cv2
+        import numpy as _np
+        extra_hues = tuple(
+            (int(_cv2.cvtColor(_np.uint8([[list(bgr)]]),
+                               _cv2.COLOR_BGR2HSV)[0][0][0]), cfg.tiles_note_tol)
+            for bgr in cfg.tiles_note_colors)
+
         def _segments(board):
+            mask = predict.tile_mask(board, cfg.tiles_dark_v, cfg.tiles_hue_lo,
+                                     cfg.tiles_hue_hi, cfg.tiles_sat_min,
+                                     extra_hues)
             return predict.lane_segments(
                 board, bands, cfg.tiles_margin, cfg.tiles_min_run,
                 cfg.tiles_dark_frac, y_lo=y_lo, y_hi=y_hi,
-                merge_gap=cfg.tiles_merge_gap)
+                merge_gap=cfg.tiles_merge_gap, mask=mask)
 
         def _trigger_occ(board, segs):
-            occ = predict.occupancy_at(segs, y_trig - band, y_trig + band)
-            if cfg.tiles_note_colors:  # OR in coloured notes / slides
-                tb = board[max(0, y_trig - band): y_trig + band]
-                for bgr in cfg.tiles_note_colors:
-                    col = tiles_color_lanes(tb, bands, bgr, cfg.tiles_note_tol)
-                    occ = [a or c for a, c in zip(occ, col)]
-            return occ
+            # the mask already covers dark + coloured notes, so trigger occupancy
+            # is just the segments overlapping the trigger band.
+            return predict.occupancy_at(segs, y_trig - band, y_trig + band)
 
         # helper buttons (start, etc.) clicked on sight between songs
         helpers = []

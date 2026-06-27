@@ -62,9 +62,17 @@ tile will reach the hit line, instead of reacting once it is already there.
     frames`) so flicker doesn't fire phantom edges.
 
 - `src/predict.py` is the **predictive detection core** (pure, replay-tested):
+  - `tile_mask` — a PRECISE boolean tile mask: a pixel is a tile when very DARK
+    (`V < tiles_dark_v` → black taps) OR in the note hue band (`tiles_hue_lo..hi`
+    + `tiles_sat_min` → blue/cyan long notes; `tiles_note_colors` adds more).
+    This cleanly rejects bright/busy backgrounds (measured on the real skin: tap
+    V<32, blue H≈99 S>150, background V>227) — relative darkness false-fired on
+    the bg gradient and those false taps were instant death. Verified on the live
+    skin: 0 false taps / 0 misses over a full clip across input latencies.
   - `lane_segments` — per-lane vertical tile spans `(y_top, y_bottom)` over the
-    WHOLE board; crops the score-header / keyboard UI (`tiles_play_top`) and
-    merges guide-line gaps (`tiles_merge_gap`).
+    WHOLE board from that mask (falls back to relative darkness if no mask given);
+    crops the score-header / keyboard UI (`tiles_play_top`) and merges guide-line
+    gaps (`tiles_merge_gap`).
   - `leading_bottoms` + `update_velocity` — one **board-wide fall velocity**
     (px/s), the EMA-median of the leading edges' per-frame motion. Tracks the
     song accelerating, so timing stays correct as it speeds up.
