@@ -20,9 +20,7 @@ class BotConfig:
     # a lane has a tile when its brightness is this far BELOW the lane median
     # (relative, so it works for any skin: black, blue, etc.)
     tiles_margin: int = 40
-    tiles_sample_h: int = 50     # taller strip = catches faster tiles between polls
-                                 # (a fast tile crosses a thin strip in <1 frame and
-                                 # is missed; 50px keeps it visible for more frames)
+    tiles_sample_h: int = 30     # taller strip = catches faster tiles between polls
     tiles_lead: int = 28         # sample this many px ABOVE the hit line, so the
                                  # press fires earlier and beats capture/input lag
                                  # (PrintWindow ~15ms/frame needs a bigger lead)
