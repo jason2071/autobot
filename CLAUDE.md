@@ -38,33 +38,54 @@ still passes.
 
 ## Architecture
 
-Data flows: **capture → per-lane detection → per-lane state machine → input**,
-all inside `BotEngine._run_tiles` running on a daemon thread.
+Data flows: **capture → per-lane segmentation → velocity + scheduling → input**,
+all inside `BotEngine._run_tiles` running on a daemon thread. Detection is
+**predictive**: it tracks each tile's fall and schedules the press for when the
+tile will reach the hit line, instead of reacting once it is already there.
 
 - `main.py` → `src/gui.py` `App` (customtkinter, fixed-size two-column window).
   The GUI builds a `BotConfig` in `_build_config`, validates, then runs a 3s
   countdown and starts a `BotEngine`. Status flows back via an `on_status`
   callback that marshals to Tk with `root.after` (the engine runs off-thread).
 
-- `src/bot.py` is the core. `BotConfig` (dataclass) holds every tunable. Module-
-  level **pure functions** carry the detection/decision logic and are what the
-  smoke tests exercise:
+- `src/bot.py` is the core. `BotConfig` (dataclass) holds every tunable. Geometry
+  + helper-detection **pure functions** live here:
   - `tiles_lane_geometry` / `tiles_board_edges` — auto-detect the board's left/
     right edges (vertical-Sobel) so side margins don't shift the lanes; fall back
     to an even split.
-  - `tiles_dark_lanes` — a lane is "active" when it is `tiles_margin` darker than
-    the **median** lane (relative → skin-independent for dark tiles).
+  - `tiles_dark_lanes` — relative-darkness primitive (a value is "dark" when it
+    is `tiles_margin` below the **median** lane → skin-independent).
   - `tiles_color_lanes` — OR-in detection for **bright/colored notes and slides**
-    by hue match; `BotConfig.tiles_note_colors` is a **list** (pick several, e.g.
-    cyan notes + pink slides). Empty list = darkness only.
-  - `tiles_hysteresis` — debounces release (`tiles_release_frames` +
-    `tiles_hold_extra`) so long notes with light trails aren't dropped early.
-  - `tiles_kb_step` / `tiles_rising` / `tiles_should_release` — the press/release
-    state machine. Per-lane independent (one touch finger each), so it does true
-    multi-hold for chords / simultaneous long notes.
-  - `_run_tiles` ties it together: sample a thin strip at the hit line, run
-    detection, drive the actuator, plus a throttled helper scan that clicks the
-    START / unlock screens between songs (`tiles_helpers`).
+    by hue match; `BotConfig.tiles_note_colors` is a **list** (empty = darkness
+    only).
+  - `tiles_hysteresis` — debounces the trigger-line occupancy (`tiles_release_
+    frames`) so flicker doesn't fire phantom edges.
+
+- `src/predict.py` is the **predictive detection core** (pure, replay-tested):
+  - `lane_segments` — per-lane vertical tile spans `(y_top, y_bottom)` over the
+    WHOLE board; crops the score-header / keyboard UI (`tiles_play_top`) and
+    merges guide-line gaps (`tiles_merge_gap`).
+  - `leading_bottoms` + `update_velocity` — one **board-wide fall velocity**
+    (px/s), the EMA-median of the leading edges' per-frame motion. Tracks the
+    song accelerating, so timing stays correct as it speeds up.
+  - `occupancy_at` + `schedule_edges` — a single **trigger line** (`tiles_trig_
+    lead` above the hit line) is the dedup: a rising edge → schedule a press for
+    `now + (hit−trig)/v − lead`; a falling edge → a release. One tile = one
+    press + one release; multi-hold / chords fall out for free (one finger per
+    lane). `tiles_lead_ms` is the fixed input+emulator latency offset (tune live).
+  - `_run_tiles` ties it together: grab the whole board, segment, update
+    velocity, sense+debounce the trigger occupancy, push scheduled events onto a
+    per-lane queue, and actuate events whose time has arrived (with a `tiles_min_
+    tap_ms` floor so taps register). Plus a throttled helper scan that clicks the
+    START / unlock screens between songs (`tiles_helpers`); a fresh board resets
+    velocity + the event queue.
+
+  Validated offline by `tests/predict_replay.py` against `gameplay*.mp4`: timing
+  jitter 1–2 frames (~25ms) after removing the constant (live-correctable) bias,
+  while `v` tracks the song from ~1400→3100 px/s. The old reactive path
+  (thin-strip occupancy at the hit line, a `tiles_kb_step` state machine) was
+  removed — it could only react once a tile was at the line and plateaued as
+  songs sped up.
 
 - **Capture** is window-bound. `src/window_capture.py` `WindowCapture` grabs one
   HWND directly so coordinates are **window-local** and other windows don't
@@ -90,14 +111,19 @@ all inside `BotEngine._run_tiles` running on a daemon thread.
 - **Coordinate scale**: `ScreenCapture.primary_monitor` picks the `is_primary`
   display (not `monitors[1]`) so the logical↔physical `scale` is right on multi-
   monitor setups. Region is window-local; clicks map back via window origin × scale.
-- **Latency drives accuracy** in fast songs. BitBlt (low latency) is the default;
-  `tiles_lead` samples a few px *above* the hit line so the press fires early
-  enough. PrintWindow's higher latency can miss everything ("nothing presses").
+- **Prediction, not latency-racing.** The old reactive path raced to detect a
+  tile at the hit line, so it needed minimum capture latency (dxcam) and still
+  plateaued. The predictive path schedules presses from velocity, so loop rate
+  matters far less — it runs ~60fps (full-board segmentation costs more than the
+  old thin strip) yet taps on time because it fires ahead by `(hit−trig)/v`.
+  Residual constant offset (capture+input+emulator lag) is absorbed by the one
+  live knob `tiles_lead_ms`. dxcam is still the default capture (correct GPU
+  layer); BitBlt grabs the WRONG layer for LDPlayer and is never used.
 - **Input is background multi-touch only** (`src/touch.py` `TouchInjector` via
   Win32 `InjectTouchInput`): one finger per lane, **no focus needed**, real
   cursor never moves, but LDPlayer must stay **visible/uncovered** (touch hits
-  the topmost window at the point). Driven by the per-lane state machine
-  `tiles_kb_step` (multi-hold / chords). The old mouse (pyautogui) and keyboard
+  the topmost window at the point). Driven by the scheduled per-lane event queue
+  in `_run_tiles` (multi-hold / chords). The old mouse (pyautogui) and keyboard
   (pynput) backends were removed; pynput is still used only for the Esc
   emergency-stop listener.
 - **Why the cursor stays put** (`_CursorGuard` in `src/touch.py`): Windows

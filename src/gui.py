@@ -223,10 +223,12 @@ class App:
         self.tiles_hit = tk.IntVar(value=80)
         self._slider_group(c_hit, "HIT LINE %", self.tiles_hit,
                            50, 98, 48, "tiles_hit_label", 80)
-        # TAP LEAD — raise if it taps late ("กดไม่ทัน"), lower if too early
-        self.tiles_lead = tk.IntVar(value=60)
-        self._slider_group(c_lead, "TAP LEAD (px)", self.tiles_lead,
-                           0, 80, 80, "tiles_lead_label", 60)
+        # LEAD (ms) — fixed input+emulator latency offset. Raise if taps land
+        # late ("กดไม่ทัน"), lower if they fire too early. Predictive timing
+        # makes this a constant, not a race.
+        self.tiles_lead_ms = tk.IntVar(value=0)
+        self._slider_group(c_lead, "LEAD (ms)", self.tiles_lead_ms,
+                           0, 200, 40, "tiles_lead_ms_label", 0)
 
         # ── CONTRAST | HOLD EXTRA — side by side ──────────────────────────
         sg = ctk.CTkFrame(right, fg_color="transparent")
@@ -243,9 +245,11 @@ class App:
         self._slider_group(c_ctr, "CONTRAST", self.tiles_margin,
                            15, 120, 105, "tiles_margin_label", 40)
 
-        self.tiles_hold_extra = tk.IntVar(value=0)
-        self._slider_group(c_he, "HOLD EXTRA", self.tiles_hold_extra,
-                           0, 40, 40, "tiles_hold_extra_label", 0)
+        # TRIG LEAD % — how far above the hit line the trigger sits (the velocity
+        # head-start). Higher = more lead time but needs a clean tile higher up.
+        self.tiles_trig_lead = tk.IntVar(value=25)
+        self._slider_group(c_he, "TRIG LEAD %", self.tiles_trig_lead,
+                           10, 40, 30, "tiles_trig_lead_label", 25)
 
         # ── slide / note color ────────────────────────────────────────────
         nc_row = ctk.CTkFrame(right, fg_color="transparent")
@@ -335,6 +339,9 @@ class App:
             for ex in edges:
                 d.line([(ex, 0), (ex, h)], fill=(0, 255, 120), width=1)
         d.line([(0, hit_y), (w, hit_y)], fill=(255, 60, 60), width=3)
+        # trigger line: where a tile's edge is sensed and its arrival predicted
+        y_trig = hit_y - int(h * self.tiles_trig_lead.get() / 100)
+        d.line([(0, y_trig), (w, y_trig)], fill=(255, 200, 60), width=2)
         for cx, (x0, x1) in zip(centers, bands):
             cx = int(cx)
             d.rectangle([x0, hit_y - 6, x1, hit_y + 6], outline=(60, 200, 255), width=2)
@@ -547,9 +554,9 @@ class App:
         return BotConfig(
             region=self._parse_region(),
             tiles_hit=self.tiles_hit.get() / 100.0,
-            tiles_lead=self.tiles_lead.get(),
+            tiles_lead_ms=float(self.tiles_lead_ms.get()),
             tiles_margin=self.tiles_margin.get(),
-            tiles_hold_extra=self.tiles_hold_extra.get(),
+            tiles_trig_lead=self.tiles_trig_lead.get() / 100.0,
             tiles_note_colors=list(self.tiles_note_bgrs),
             tiles_helpers=self._helper_templates(),
             target_hwnd=self.target_hwnd,

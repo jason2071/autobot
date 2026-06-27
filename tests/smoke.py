@@ -82,72 +82,54 @@ def _lane_darks(img, lanes=4, hit=0.80, sample_h=18, lead=12, margin=40):
 
 
 def test_tiles_logic() -> None:
-    # state machine: rising-edge press, falling-edge release, max-hold cap
-    assert bot.tiles_rising([False, False], [False, True]) == [1], "rising edge"
-    assert bot.tiles_rising([True, False], [True, False]) == [], "no new edge"
-    assert bot.tiles_rising([True, True], [True, True]) == [], "primed dark"
-    assert bot.tiles_rising([False, False, False, False],
-                            [True, False, True, False]) == [0, 2], "chord"
-
-    assert bot.tiles_should_release(0, [False], 0.0, 0.01, 1.5) is True, "falling"
-    assert bot.tiles_should_release(0, [True], 0.0, 0.01, 1.5) is False, "still held"
-    assert bot.tiles_should_release(0, [True], 0.0, 2.0, 1.5) is True, "max hold"
-    assert bot.tiles_should_release(None, [True], 0.0, 9.0, 1.5) is False, "nothing held"
-
     # relative darkness: a blue tile (mean 90) among bright lanes is still a tile
     assert bot.tiles_dark_lanes([152, 90, 130, 158], 40) == [False, True, False, False]
-
-    # dark-fraction detector: a band that is mostly dark (a tile) vs a bright
-    # band (background) vs a mostly-bright band with a thin dark guide line.
-    bg = np.full((20, 30), 200, np.uint8)
-    tile = np.full((20, 30), 20, np.uint8)
-    guide = bg.copy(); guide[:, 14:16] = 20  # thin dark line on a bright lane
-    assert bot.tiles_dark_frac([tile, bg, bg, bg], 40) == [True, False, False, False]
-    # the thin guide line must NOT read as a tile (robust hold past centre lines)
-    assert bot.tiles_dark_frac([guide, bg, bg, bg], 40) == [False, False, False, False]
-    print("  tiles state machine + relative darkness + dark-fraction OK")
+    print("  relative darkness OK")
 
 
-def test_tiles_keyboard_multihold() -> None:
-    # simulate two long tiles falling at once in lanes 0 and 2 (keyboard mode)
-    down = [False] * 4
-    since = [0.0] * 4
-    prev = [False] * 4
-    mh = 1.5
+def test_predict_logic() -> None:
+    from src import predict
 
-    # frame 1: lanes 0 and 2 go dark together -> press both, hold both
-    dark = [True, False, True, False]
-    acts = bot.tiles_kb_step(prev, dark, down, since, 0.0, mh)
-    assert sorted(acts) == [("press", 0), ("press", 2)], acts
-    assert down == [True, False, True, False], "both keys held at once"
-    prev = dark
+    # segmentation: a synthetic board, lane 0 holds a tall dark tile (a long
+    # note), lane 1 a short tile, lanes 2/3 empty. Header above y_lo is ignored.
+    board = np.full((400, 400), 200, np.uint8)
+    bands = [(10, 90), (110, 190), (210, 290), (310, 390)]
+    board[:30, 10:90] = 20            # score-header strip (must be cropped out)
+    board[120:300, 10:90] = 20        # lane0 long note
+    board[140:170, 110:190] = 20      # lane1 short tile
+    segs = predict.lane_segments(board, bands, margin=40, min_run=12,
+                                  y_lo=40, y_hi=360, merge_gap=10)
+    assert segs[0] == [(120, 299)], segs[0]          # header excluded, tile kept
+    assert segs[1] == [(140, 169)], segs[1]
+    assert segs[2] == [] and segs[3] == [], segs
 
-    # frame 2..N: still dark -> no new actions, stays held (the multi-hold)
-    acts = bot.tiles_kb_step(prev, dark, down, since, 0.05, mh)
-    assert acts == [], "no churn while both held"
-    assert down == [True, False, True, False]
-    prev = dark
+    # leading edge = bottom of the lowest tile above the hit line
+    assert predict.leading_bottoms(segs, hit_y=380) == [299.0, 169.0, None, None]
 
-    # lane 0 clears, lane 2 still long -> release only 0, keep holding 2
-    dark = [False, False, True, False]
-    acts = bot.tiles_kb_step(prev, dark, down, since, 0.10, mh)
-    assert acts == [("release", 0)], acts
-    assert down == [False, False, True, False]
-    prev = dark
+    # velocity: a tile moving 20px between frames at dt=0.02s -> 1000 px/s
+    v = predict.update_velocity(0.0, [100.0, None, None, None],
+                                [120.0, None, None, None], dt=0.02)
+    assert abs(v - 1000.0) < 1e-6, v
 
-    # lane 2 clears -> release 2
-    dark = [False, False, False, False]
-    acts = bot.tiles_kb_step(prev, dark, down, since, 0.20, mh)
-    assert acts == [("release", 2)], acts
-    assert down == [False, False, False, False]
+    # occupancy at a trigger band: tile spanning the band counts
+    occ = predict.occupancy_at(segs, 150, 160)
+    assert occ == [True, True, False, False], occ
 
-    # max-hold safety: a stuck-dark lane is force-released
-    down = [True, False, False, False]
-    since = [0.0, 0, 0, 0]
-    acts = bot.tiles_kb_step([True, False, False, False], [True, False, False, False],
-                             down, since, 2.0, mh)
-    assert acts == [("release", 0)], acts
-    print("  keyboard multi-hold (2 long tiles at once) OK")
+    # scheduling: a rising edge in lane 0 schedules a press; with v=1000 px/s and
+    # 200px from trigger to hit, the press is 0.2s out (minus lead).
+    evs = predict.schedule_edges([False] * 4, [True, False, False, False],
+                                 v=1000.0, y_trig=200, hit_y=400, now=10.0,
+                                 lead_s=0.05)
+    assert len(evs) == 1 and evs[0].kind == "press" and evs[0].lane == 0
+    assert abs(evs[0].t - (10.0 + 0.2 - 0.05)) < 1e-6, evs[0].t
+    # a falling edge schedules a release; no edge -> nothing
+    rel = predict.schedule_edges([True, False, False, False], [False] * 4,
+                                 v=1000.0, y_trig=200, hit_y=400, now=11.0,
+                                 lead_s=0.0)
+    assert len(rel) == 1 and rel[0].kind == "release"
+    # velocity unknown -> no scheduling (never fire blind)
+    assert predict.schedule_edges([False] * 4, [True] * 4, None, 200, 400, 0, 0) == []
+    print("  predict segments + velocity + edge scheduling OK")
 
 
 def test_tiles_hysteresis() -> None:
@@ -237,7 +219,7 @@ def main() -> None:
         ("capture/region", test_capture_and_scale),
         ("clicker/scale", test_clicker_scale),
         ("tiles/logic", test_tiles_logic),
-        ("tiles/kb-multihold", test_tiles_keyboard_multihold),
+        ("predict/logic", test_predict_logic),
         ("tiles/hysteresis", test_tiles_hysteresis),
         ("tiles/screenshots", test_tiles_on_screenshots),
         ("tiles/game-cases", test_tiles_game_cases),

@@ -19,17 +19,23 @@ class BotConfig:
     tiles_hit: float = 0.80      # hit line as a fraction of region height
     # a lane has a tile when its brightness is this far BELOW the lane median
     # (relative, so it works for any skin: black, blue, etc.)
-    tiles_margin: int = 40
-    tiles_sample_h: int = 30     # taller strip = catches faster tiles between polls
-    tiles_lead: int = 60         # sample this many px ABOVE the hit line, so the
-                                 # press fires earlier and beats capture/input lag
-                                 # (PrintWindow ~15ms/frame needs a bigger lead)
+    tiles_margin: int = 40       # a row is "dark" when this far below board median
+    tiles_dark_frac: float = 0.5  # fraction of a lane row that must be dark
     tiles_poll: float = 0.001    # seconds between scans (fast; tiles speed up)
     tiles_max_hold: float = 4.0  # force-release a hold after this many seconds
     tiles_release_frames: int = 3  # frames of light before releasing (debounce)
-    tiles_hold_extra: int = 0      # opt-in: extra light frames before releasing
-                                   # a hold (helps long notes whose dark part is
-                                   # shorter than the note; 0 = no change)
+    # --- predictive tracking knobs (see src/predict.py) ---
+    # Detect tiles across the whole board, track the board-wide fall velocity,
+    # and SCHEDULE each press for when the tile reaches the hit line, instead of
+    # reacting once it is already there. Timing then comes from position +
+    # velocity, so it keeps up as the song speeds up.
+    tiles_play_top: float = 0.18   # ignore the score-header UI above this (frac H)
+    tiles_trig_lead: float = 0.25  # trigger line this frac of H ABOVE the hit line
+    tiles_trig_band: int = 12      # trigger sense band half-thickness (px)
+    tiles_min_run: int = 12        # min vertical run (px) to count as a tile
+    tiles_merge_gap: int = 30      # bridge a tile's centre guide-line / gradient
+    tiles_lead_ms: float = 0.0     # fixed input+emulator latency offset (tune live)
+    tiles_min_tap_ms: float = 30.0  # floor a tap's hold so the touch registers
     # opt-in: also flag a lane active when it carries this note colour (BGR) —
     # detects bright/coloured notes and slides (the lit lane shifts across the
     # board, and the per-lane state machine follows it). A lane is active when it
@@ -68,46 +74,6 @@ def tiles_dark_lanes(means: list[float], margin: float) -> list[bool]:
     return [m < bg - margin for m in means]
 
 
-def tiles_occupied_lanes(band, bands, sh: int, margin: float) -> list[bool]:
-    """A lane is occupied when a tile sits at the PRESS strip (top of `band`) OR
-    at the hit-line strip (bottom of `band`).
-
-    Two THIN strips, each judged by the conventional band-mean vs the median lane
-    (tiles_dark_lanes) — conservative, so the busy background does not false-fire
-    the way a darkest-row test over the whole band does. The top strip fires the
-    press early; OR-ing the bottom (hit-line) strip keeps a long note held until
-    it actually clears the hit line. Release hysteresis bridges the small gap
-    between the two strips so a tile passing through is not dropped.
-    """
-    top = band[:sh]
-    bot = band[-sh:]
-    tm = [float(top[:, x0:x1].mean()) for x0, x1 in bands]
-    bm = [float(bot[:, x0:x1].mean()) for x0, x1 in bands]
-    return [t or b for t, b in
-            zip(tiles_dark_lanes(tm, margin), tiles_dark_lanes(bm, margin))]
-
-
-def tiles_dark_frac(
-    lane_bands: list, margin: float, min_frac: float = 0.25
-) -> list[bool]:
-    """A lane has a tile when enough of its band is darker than the background.
-
-    `lane_bands` is one 2D grayscale array per lane (the hit band sampled from
-    the strip). Background brightness = the upper-middle lane mean (so a note
-    covering up to half the lanes doesn't drag it down). A lane counts as a tile
-    when the fraction of pixels darker than `bg - margin` exceeds `min_frac`.
-
-    Using a *fraction over a tall band* (rather than the band mean) makes the
-    hold robust to a note's light centre guide-line/dots, and — because the band
-    spans from the lead point down to the hit line — keeps the hold until the
-    note actually clears the line (fixes long notes releasing early).
-    """
-    means = sorted(float(b.mean()) for b in lane_bands)
-    bg = means[len(means) // 2]
-    thr = bg - margin
-    return [float((b < thr).mean()) > min_frac for b in lane_bands]
-
-
 def tiles_color_lanes(frame, lane_bands_x, bgr, hue_tol, min_frac=0.30):
     """Flag lanes whose hit band is mostly the note colour `bgr` (within
     `hue_tol` hue degrees). Used for bright/coloured notes and slides — the lit
@@ -126,16 +92,6 @@ def tiles_color_lanes(frame, lane_bands_x, bgr, hue_tol, min_frac=0.30):
     mask = cv2.inRange(hsv, lo, hi)
     return [float(mask[:, x0:x1].mean()) / 255.0 > min_frac
             for x0, x1 in lane_bands_x]
-
-
-def tiles_should_release(
-    held: int | None, dark: list[bool], held_since: float, now: float, max_hold: float
-) -> bool:
-    """Release the pressed lane on a falling edge, or after the max hold time
-    (the latter guards against a permanently-dark region locking the button)."""
-    if held is None:
-        return False
-    return (not dark[held]) or (now - held_since > max_hold)
 
 
 def tiles_board_edges(frame: "np.ndarray") -> tuple[int, int] | None:
@@ -206,38 +162,6 @@ def tiles_hysteresis(
     return eff
 
 
-def tiles_kb_step(
-    prev: list[bool], dark: list[bool], down: list[bool],
-    since: list[float], now: float, max_hold: float,
-) -> list[tuple[str, int]]:
-    """Per-lane keyboard state machine (independent lanes -> true multi-hold).
-
-    Mutates `down`/`since` in place and returns the ('press'|'release', lane)
-    actions to actuate. Each lane: release on a falling edge or after max_hold,
-    press on a light->dark rising edge. Lanes are independent, so two long
-    tiles in different lanes are held at the same time.
-    """
-    actions: list[tuple[str, int]] = []
-    for i in range(len(dark)):
-        if down[i] and (not dark[i] or now - since[i] > max_hold):
-            actions.append(("release", i))
-            down[i] = False
-        if dark[i] and not prev[i] and not down[i]:
-            actions.append(("press", i))
-            down[i] = True
-            since[i] = now
-    return actions
-
-
-def tiles_rising(prev: list[bool], dark: list[bool]) -> list[int]:
-    """Lanes with a light->dark RISING edge this frame (new tiles).
-
-    Edge-triggered so a region dark from the start never fires. A list (not a
-    single lane) so simultaneous tiles — chords — can all be handled.
-    """
-    return [i for i in range(len(dark)) if dark[i] and not prev[i]]
-
-
 class BotEngine:
     def __init__(self, config: BotConfig, on_status: StatusCallback | None = None) -> None:
         self.config = config
@@ -286,30 +210,31 @@ class BotEngine:
             self.on_status("stopped")
 
     def _run_tiles(self, cap) -> None:
-        """Magic Tiles 3 loop: watch N lanes at a hit line, press while a dark
-        tile covers it. A short tile -> brief press (tap); a long tile -> a
-        sustained hold until the tile clears.
+        """Magic Tiles 3 loop, PREDICTIVE (see src/predict.py).
 
-        Two input backends:
-          - "mouse":    one real cursor; a single tile/hold at a time, chords
-                        are quick-tapped (no simultaneous holds).
-          - "keyboard": one key per lane (LDPlayer key mapping). Each lane is
-                        independent, so multiple long tiles / chords hold at
-                        once. This is the way to support 2+ simultaneous holds.
+        Each frame: grab the whole board, segment the tiles per lane, track the
+        board-wide fall velocity from the leading edges, sense occupancy at a
+        TRIGGER line above the hit line, and SCHEDULE a press for the moment the
+        tile will reach the hit line (`t = now + (hit - trig)/v - lead`). A
+        single trigger line is the dedup (one rising edge = press, one falling =
+        release per tile → multi-hold / chords fall out for free, one finger per
+        lane). Timing comes from position + velocity, so it keeps up as the song
+        speeds up instead of racing to react at the line.
 
-        Safety: presses fire only on a light->dark EDGE (a permanently dark
-        region never sticks), holds force-release after `tiles_max_hold`, Esc
-        stops the bot even while inputs are held, and everything is released in
-        `finally`.
+        Safety: a press only ever follows a trigger rising edge, holds
+        force-release after `tiles_max_hold`, Esc stops the bot even while held,
+        and everything is released in `finally`.
         """
+        from . import predict
+
         cfg = self.config
         mon = cfg.region  # validated non-None for tiles mode
         lanes = max(1, cfg.tiles_lanes)
         H = mon["height"]
 
-        # capture source: a specific window (PrintWindow, overlap-proof) when a
-        # target hwnd is set, else the screen region (mss). For window capture
-        # `mon` is window-local and (ox, oy) maps it back to screen for clicks.
+        # capture source: a specific window (dxcam, low-latency) when a target
+        # hwnd is set, else the screen region (mss). For window capture `mon` is
+        # window-local and (ox, oy) maps it back to screen for touch.
         win = None
         if cfg.target_hwnd:
             from .window_capture import WindowCapture
@@ -317,23 +242,23 @@ class BotEngine:
         src_grab = win.grab if win else cap.grab
         ox, oy = win.origin() if win else (0, 0)
 
-        # TALL band from the early press point (`tiles_lead` px above the hit line)
-        # down to just past the hit line. Pressing keys off the TOP of this band
-        # (fires early, beats capture/input lag); the hold continues while a tile
-        # occupies ANY part of it, so a long note is held until it clears the hit
-        # line (the band's bottom). One grab; occupancy via tiles_occupied_lanes.
-        sh = max(2, cfg.tiles_sample_h)
-        hit_y = mon["top"] + int(H * cfg.tiles_hit)
-        strip = {"top": hit_y - cfg.tiles_lead - sh // 2, "left": mon["left"],
-                 "width": mon["width"], "height": cfg.tiles_lead + sh}
+        # all detection is in board-image coords (row 0 = mon["top"]); only touch
+        # converts to screen. Trigger line sits `tiles_trig_lead` of the height
+        # above the hit line — the head-start the velocity projection needs.
+        hit_row = int(H * cfg.tiles_hit)
+        y_lo = int(H * cfg.tiles_play_top)
+        y_hi = min(H, hit_row + 40)
+        y_trig = hit_row - int(H * cfg.tiles_trig_lead)
+        band = max(2, cfg.tiles_trig_band)
+        lead_s = cfg.tiles_lead_ms / 1000.0
+        min_tap_s = cfg.tiles_min_tap_ms / 1000.0
 
         # lane geometry in WINDOW-LOCAL coords; (ox, oy) is the window origin and
         # is refreshed every loop, so moving LDPlayer mid-play keeps the touches
-        # on the board (capture follows the window too). Even split until the real
-        # board is confidently detected, then lock onto it.
-        typ = int(hit_y)                                     # hit-line y (local)
+        # on the board. Even split until the real board is confidently detected.
         centers, bands = tiles_lane_geometry(src_grab(mon), lanes)
         tx = [int(mon["left"] + cx) for cx in centers]       # lane x (local)
+        ty = mon["top"] + hit_row                            # hit-line y (local)
         locked = tiles_board_edges(src_grab(mon)) is not None
 
         def _recalibrate(board) -> None:
@@ -351,17 +276,22 @@ class BotEngine:
         down = [False] * lanes          # which lanes are currently held
         held_since = [0.0] * lanes
 
-        def press(i):
-            touch.down(i, ox + tx[i], oy + typ)
+        def press(i, now):
+            if not down[i]:
+                touch.down(i, ox + tx[i], oy + ty)
+                down[i] = True
+                held_since[i] = now
 
         def release(i):
-            touch.up(i)
+            if down[i]:
+                touch.up(i)
+                down[i] = False
 
         def release_all():
             for i in range(lanes):
                 if down[i]:
                     try:
-                        release(i)
+                        touch.up(i)
                     except Exception:
                         pass
                     down[i] = False
@@ -381,13 +311,20 @@ class BotEngine:
         except Exception:
             listener = None
 
-        def _read_dark():
-            frame = src_grab(strip)
-            active = tiles_occupied_lanes(frame, bands, sh, cfg.tiles_margin)
-            for bgr in cfg.tiles_note_colors:  # OR in coloured notes / slides
-                col = tiles_color_lanes(frame, bands, bgr, cfg.tiles_note_tol)
-                active = [a or c for a, c in zip(active, col)]
-            return active
+        def _segments(board):
+            return predict.lane_segments(
+                board, bands, cfg.tiles_margin, cfg.tiles_min_run,
+                cfg.tiles_dark_frac, y_lo=y_lo, y_hi=y_hi,
+                merge_gap=cfg.tiles_merge_gap)
+
+        def _trigger_occ(board, segs):
+            occ = predict.occupancy_at(segs, y_trig - band, y_trig + band)
+            if cfg.tiles_note_colors:  # OR in coloured notes / slides
+                tb = board[max(0, y_trig - band): y_trig + band]
+                for bgr in cfg.tiles_note_colors:
+                    col = tiles_color_lanes(tb, bands, bgr, cfg.tiles_note_tol)
+                    occ = [a or c for a, c in zip(occ, col)]
+            return occ
 
         # helper buttons (start, etc.) clicked on sight between songs
         helpers = []
@@ -421,11 +358,27 @@ class BotEngine:
                 return True
             return False
 
-        # prime: lanes already dark at start must NOT fire
+        # predictive state
+        v = 0.0
+        prev_bottoms = None
+        prev_occ = [False] * lanes
         light_streak = [cfg.tiles_release_frames] * lanes
-        prev = _read_dark()
-        last_active = 0.0  # last time any lane was active (a tile on the line)
-        self.on_status("running (tiles/background) — Esc to stop")
+        queue: list[predict.Event] = []  # scheduled press/release, abs monotonic
+        last_t = time.monotonic()
+        last_active = 0.0  # last time any lane was active (a tile near the line)
+
+        def _reset_play() -> None:
+            """Fresh board (after a helper tap): forget motion + pending events."""
+            nonlocal v, prev_bottoms, prev_occ
+            release_all()
+            queue.clear()
+            v = 0.0
+            prev_bottoms = None
+            prev_occ = [False] * lanes
+            for i in range(lanes):
+                light_streak[i] = cfg.tiles_release_frames
+
+        self.on_status("running (tiles/predictive) — Esc to stop")
         try:
             while not self._stop.is_set():
                 now = time.monotonic()
@@ -433,37 +386,59 @@ class BotEngine:
                     ox, oy = win.origin()
 
                 # Helper scan (full-window grab + template match) is expensive and
-                # halves the capture rate, which drops tiles. Only run it when the
-                # board has been QUIET for a while — i.e. between songs (waiting on
-                # START / unlock), never mid-song while tiles are flowing.
+                # halves the capture rate. Only run it when the board has been
+                # QUIET for a while — between songs (waiting on START / unlock).
                 quiet = now - last_active > 1.0
                 if quiet and now - last_helper >= cfg.tiles_helper_interval:
                     last_helper = now
                     if not locked:           # auto-lock onto the real board
                         _recalibrate(src_grab(mon))
                     if helpers and _scan_helpers(src_grab(None)):
-                        # Resume play almost immediately: the song's first tile
-                        # falls within ~0.2s of tapping START, so a long pause
-                        # here misses it and ends the run at 1 point. The next
-                        # helper scan is throttled by tiles_helper_interval, so
-                        # this short settle won't re-tap the same button.
-                        prev = [False] * lanes
+                        _reset_play()
                         self._stop.wait(0.1)
+                        last_t = time.monotonic()
                         continue
 
-                dark = tiles_hysteresis(
-                    _read_dark(), light_streak,
-                    cfg.tiles_release_frames + cfg.tiles_hold_extra)
-                if any(dark):
+                board = src_grab(mon)
+                segs = _segments(board)
+
+                # board-wide fall velocity from the leading edges
+                dt = now - last_t
+                last_t = now
+                bottoms = predict.leading_bottoms(segs, hit_row)
+                v = predict.update_velocity(v, prev_bottoms, bottoms, dt)
+                prev_bottoms = bottoms
+
+                # trigger-line occupancy, debounced, then edge-scheduled forward
+                occ = tiles_hysteresis(_trigger_occ(board, segs), light_streak,
+                                       cfg.tiles_release_frames)
+                if any(occ) or any(down):
                     last_active = now
+                queue.extend(predict.schedule_edges(
+                    prev_occ, occ, v, y_trig, hit_row, now, lead_s))
+                prev_occ = occ
 
-                # independent per-lane multi-touch -> true multi-hold + chords
-                for act, i in tiles_kb_step(
-                    prev, dark, down, held_since, now, cfg.tiles_max_hold
-                ):
-                    (release if act == "release" else press)(i)
+                # actuate every event whose time has arrived (press before release
+                # within a lane, since rising precedes falling in real time)
+                due = [e for e in queue if e.t <= now]
+                if due:
+                    due.sort(key=lambda e: e.t)
+                    keep = [e for e in queue if e.t > now]
+                    for ev in due:
+                        if ev.kind == "press":
+                            press(ev.lane, now)
+                        elif down[ev.lane] and now - held_since[ev.lane] < min_tap_s:
+                            ev.t = held_since[ev.lane] + min_tap_s  # hold the tap
+                            keep.append(ev)
+                        else:
+                            release(ev.lane)
+                    queue = keep
 
-                prev = dark
+                # safety: force-release a lane stuck down past the max hold
+                for i in range(lanes):
+                    if down[i] and now - held_since[i] > cfg.tiles_max_hold:
+                        release(i)
+
                 self._stop.wait(cfg.tiles_poll)
         finally:
             release_all()
