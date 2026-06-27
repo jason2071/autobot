@@ -401,6 +401,7 @@ class BotEngine:
         # prime: lanes already dark at start must NOT fire
         light_streak = [cfg.tiles_release_frames] * lanes
         prev = _read_dark()
+        last_active = 0.0  # last time any lane was active (a tile on the line)
         self.on_status("running (tiles/background) — Esc to stop")
         try:
             while not self._stop.is_set():
@@ -408,7 +409,12 @@ class BotEngine:
                 if win is not None:       # follow the window if it's moved
                     ox, oy = win.origin()
 
-                if now - last_helper >= cfg.tiles_helper_interval:
+                # Helper scan (full-window grab + template match) is expensive and
+                # halves the capture rate, which drops tiles. Only run it when the
+                # board has been QUIET for a while — i.e. between songs (waiting on
+                # START / unlock), never mid-song while tiles are flowing.
+                quiet = now - last_active > 1.0
+                if quiet and now - last_helper >= cfg.tiles_helper_interval:
                     last_helper = now
                     if not locked:           # auto-lock onto the real board
                         _recalibrate(src_grab(mon))
@@ -425,6 +431,8 @@ class BotEngine:
                 dark = tiles_hysteresis(
                     _read_dark(), light_streak,
                     cfg.tiles_release_frames + cfg.tiles_hold_extra)
+                if any(dark):
+                    last_active = now
 
                 # independent per-lane multi-touch -> true multi-hold + chords
                 for act, i in tiles_kb_step(
