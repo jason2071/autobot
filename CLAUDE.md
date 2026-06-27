@@ -60,17 +60,18 @@ all inside `BotEngine._run_tiles` running on a daemon thread.
   - `tiles_hysteresis` — debounces release (`tiles_release_frames` +
     `tiles_hold_extra`) so long notes with light trails aren't dropped early.
   - `tiles_kb_step` / `tiles_rising` / `tiles_should_release` — the press/release
-    state machine. **Keyboard** backend is per-lane independent (true multi-hold
-    for chords / simultaneous long notes); **mouse** backend is single-pointer.
+    state machine. Per-lane independent (one touch finger each), so it does true
+    multi-hold for chords / simultaneous long notes.
   - `_run_tiles` ties it together: sample a thin strip at the hit line, run
     detection, drive the actuator, plus a throttled helper scan that clicks the
     START / unlock screens between songs (`tiles_helpers`).
 
 - **Capture** is window-bound. `src/window_capture.py` `WindowCapture` grabs one
   HWND directly so coordinates are **window-local** and other windows don't
-  interfere. Two methods: `bitblt` (~400fps, default, but reads on-screen pixels
-  so the window must be visible — falls back to PrintWindow on an all-black
-  grab) and `printwindow` (~65fps, overlap-proof). `src/capture.py`
+  interfere. Two methods exist — `bitblt` (~400fps, reads on-screen pixels) and
+  `printwindow` (~65fps, overlap-proof) — but the bot **hard-wires PrintWindow**:
+  BitBlt grabs the wrong layer for LDPlayer (overlapping child windows), so
+  detection runs on a stale/blank image and nothing taps. `src/capture.py`
   `ScreenCapture` (mss) is used for the eyedropper / scale. `src/window_picker.py`
   lists windows and `focus_window`s the target (Win32 / AppleScript).
 
@@ -96,5 +97,16 @@ all inside `BotEngine._run_tiles` running on a daemon thread.
   `tiles_kb_step` (multi-hold / chords). The old mouse (pyautogui) and keyboard
   (pynput) backends were removed; pynput is still used only for the Esc
   emergency-stop listener.
+- **Why the cursor stays put** (`_CursorGuard` in `src/touch.py`): Windows
+  promotes the *primary* touch pointer to synthetic mouse input, so injected
+  touch would otherwise jerk the real cursor to each lane (and could click
+  another window). You can't dodge it by demoting the contact — LDPlayer only
+  registers the *primary* touch, so a held "anchor" contact gets ignored and
+  taps stop landing. Instead a `WH_MOUSE_LL` hook on a dedicated pumped thread
+  **swallows injected mouse events** (`LLMHF_INJECTED`) and passes real input
+  through. Verified: 200 rapid taps move the cursor zero pixels; the user's own
+  mouse keeps working. **Capture must stay PrintWindow** — BitBlt grabs the
+  wrong layer for LDPlayer, so detection fails and nothing taps (the GUI no
+  longer exposes a BitBlt/"Fast capture" toggle).
 - `templates/` and `*.mp4` are gitignored (game assets, gameplay recordings used
   only for offline analysis).

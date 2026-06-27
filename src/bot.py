@@ -322,19 +322,7 @@ class BotEngine:
 
         # --- per-lane actuator: background multi-touch (one finger per lane) ---
         from .touch import TouchInjector
-        touch = TouchInjector(max_contacts=max(lanes + 3, 10))
-
-        # Park a permanent PRIMARY anchor contact so lane taps stay SECONDARY and
-        # never drag the real cursor (Windows promotes the primary touch to a
-        # mouse move on UP). Anchor lands in the board's letterbox margin — on the
-        # target window but off the playfield — so it triggers no game action.
-        if mon["left"] >= 6:                      # left black margin
-            anc_x, anc_y = ox + mon["left"] // 2, oy + mon["top"] + H // 2
-        elif mon["top"] >= 6:                     # top black margin
-            anc_x, anc_y = ox + mon["left"] + mon["width"] // 2, oy + mon["top"] // 2
-        else:                                     # no margin: window corner
-            anc_x, anc_y = ox + 2, oy + 2
-        touch.set_anchor(anc_x, anc_y)
+        touch = TouchInjector(max_contacts=max(lanes + 2, 10))
 
         down = [False] * lanes          # which lanes are currently held
         held_since = [0.0] * lanes
