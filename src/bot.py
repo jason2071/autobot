@@ -28,8 +28,9 @@ class BotConfig:
     # extra note hues.
     tiles_dark_v: int = 60
     tiles_hue_lo: int = 90
-    tiles_hue_hi: int = 110
-    tiles_sat_min: int = 140
+    tiles_hue_hi: int = 102   # tight: a blue NOTE is H98-100; a blue/purple
+    tiles_sat_min: int = 155  # BACKGROUND is H104-116 S124-150 V250 — excluded
+                              # by hue>102 / sat<155 so it isn't read as a note
     # if more than this fraction of the play area is tile-mask, it is NOT a
     # gameplay board (a menu / ad / result screen, or another window covering
     # LDPlayer) — suppress pressing so the bot doesn't tap random UI. Real
