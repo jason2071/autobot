@@ -418,16 +418,25 @@ class BotEngine:
                     prev_occ, occ, v, y_trig, hit_row, now, lead_s))
                 prev_occ = occ
 
-                # actuate every event whose time has arrived (press before release
-                # within a lane, since rising precedes falling in real time)
+                # actuate every event whose time has arrived. Process presses
+                # before releases this frame: ETA = (hit-trig)/v is recomputed
+                # from the live velocity, so as the song accelerates a tile's
+                # release (scheduled at a higher v) can fall due before its own
+                # press. Pressing first turns that into a clean tap; a release
+                # that arrives while the lane is still up (its press is queued in
+                # the future) instead CANCELS that pending press — otherwise the
+                # finger would be stranded down until the max-hold safety.
                 due = [e for e in queue if e.t <= now]
                 if due:
-                    due.sort(key=lambda e: e.t)
                     keep = [e for e in queue if e.t > now]
+                    due.sort(key=lambda e: (e.kind != "press", e.t))
                     for ev in due:
                         if ev.kind == "press":
                             press(ev.lane, now)
-                        elif down[ev.lane] and now - held_since[ev.lane] < min_tap_s:
+                        elif not down[ev.lane]:
+                            keep = [e for e in keep
+                                    if not (e.lane == ev.lane and e.kind == "press")]
+                        elif now - held_since[ev.lane] < min_tap_s:
                             ev.t = held_since[ev.lane] + min_tap_s  # hold the tap
                             keep.append(ev)
                         else:

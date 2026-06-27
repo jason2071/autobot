@@ -15,6 +15,12 @@ frames of a real onset in the same lane.
 
 Run: python -m tests.predict_replay              (report on every gameplay*.mp4)
 Skips itself (clean checkout) when no clip is present — *.mp4 are gitignored.
+
+Scope: the gameplay clips are 60fps and the live loop runs ~60fps (full-board
+segmentation), so the frame-based debounce / min-run windows here validate at a
+representative time-base. The gate's hard assertion is on timing JITTER (the
+predictive thesis); precision/recall against the hit-line pseudo-truth measure
+detector parity, not timing, and are tuned live against real score.
 """
 
 from __future__ import annotations

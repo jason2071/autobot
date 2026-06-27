@@ -106,24 +106,24 @@ emulator). The region becomes **window-local** (`0,0,width,height` = whole
 window); trim it to the play area by hand. Drag-area and Full screen still use
 plain screen capture. (Window capture currently applies to **tiles** mode.)
 
-Two capture methods (tiles panel toggle **Capture while covered**):
-- off (default) — **BitBlt**, ~400 fps. Low latency, so taps keep up with fast
-  songs. Reads the window's *on-screen* pixels, so the game must stay on top
-  (it always is while playing, since clicks/keys go to the focused window).
-- on — **PrintWindow**, ~65 fps, but **immune to other apps overlapping** the
-  window (renders it even when covered). Slower; use only if you must cover the
-  game (e.g. observe-only while doing something else).
+Capture uses **dxcam** (DXGI desktop duplication) — ~0.1ms/grab, the correct GPU
+layer for LDPlayer. It needs the window **visible/uncovered** (already required
+for touch). **PrintWindow** (~20ms, renders even when covered) is the automatic
+fallback if dxcam is unavailable.
 
-Taps fire a few px **above** the hit line (`tiles_lead`, default 12) to beat the
-capture + input latency, so fast tiles aren't tapped late.
+### Predictive timing
+The bot doesn't wait for a tile to reach the hit line. It detects tiles across
+the whole board, measures the **fall velocity**, and **schedules** each tap for
+when the tile *will* arrive — so it stays on time even as the song speeds up.
+The one timing knob is **LEAD (ms)**: raise it if taps land late, lower it if
+they fire too early. **TRIG LEAD %** sets how far above the hit line tiles are
+sensed (the velocity head-start).
 
-### Background click
-With **Background click** on, the bot posts the click directly to the window
-under the target point **without moving your real cursor** — so you can keep
-using the machine for something else.
-
-- macOS: Quartz `CGEventPostToPid`
-- Windows: Win32 `PostMessage` (WM_LBUTTONDOWN/UP) to the window under the point
+### Background touch
+Input is background multi-touch via Win32 `InjectTouchInput` — one finger per
+lane (so chords / simultaneous long notes hold at once), **no focus needed**,
+and the real cursor never moves. The game must stay visible/uncovered (touch
+lands on the topmost window at each lane point).
 
 Limitations:
 - games/apps that read raw HID input or have anti-cheat may **ignore** synthetic events

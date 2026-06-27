@@ -81,19 +81,19 @@ def lane_segments(
     gray = board if board.ndim == 2 else cv2.cvtColor(board, cv2.COLOR_BGR2GRAY)
     gray = gray.astype(np.int16)
     h = gray.shape[0]
+    lo = max(0, y_lo)
     hi = h if y_hi is None else min(y_hi, h)
     bg = float(np.median(gray))
     thr = bg - margin
     out: list[list[tuple[int, int]]] = []
+    # scan only rows in [lo, hi): everything outside is cropped UI, and limiting
+    # the per-row run scan to the play area keeps the hot loop cheap. Runs are
+    # offset back to board-y by `lo`.
     for x0, x1 in bands:
-        col = gray[:, x0:x1]
-        occ = (col < thr).mean(axis=1) > dark_frac  # bool per row
-        if y_lo > 0:
-            occ[:y_lo] = False
-        if hi < h:
-            occ[hi:] = False
+        col = gray[lo:hi, x0:x1]
+        occ = (col < thr).mean(axis=1) > dark_frac  # bool per row in [lo, hi)
         runs = _merge(_raw_runs(occ), merge_gap)
-        out.append([(a, b) for a, b in runs if b - a + 1 >= min_run])
+        out.append([(a + lo, b + lo) for a, b in runs if b - a + 1 >= min_run])
     return out
 
 
@@ -113,19 +113,22 @@ def leading_bottoms(
 def update_velocity(
     v: float, prev_bottoms: list[float | None] | None,
     bottoms: list[float | None], dt: float,
-    alpha: float = 0.3, max_step: float = 90.0,
+    alpha: float = 0.3, max_speed: float = 6000.0,
 ) -> float:
     """Smoothly track the board-wide fall velocity (px/s).
 
     All tiles scroll at one speed, so the median of the plausible per-lane
     leading-edge displacements this frame is a robust instantaneous estimate;
-    an EMA (`alpha`) smooths it. Displacements that are non-positive or larger
-    than `max_step` (a tile vanished / a new one appeared) are ignored.
+    an EMA (`alpha`) smooths it. A displacement is kept only when it is downward
+    and its implied SPEED is below `max_speed` px/s (a tile vanishing / a new
+    one appearing gives an implausible jump). Gating on speed, not raw pixels,
+    means a fast tile on a slow frame isn't wrongly discarded (which would
+    freeze `v`).
     """
     if not prev_bottoms or dt <= 0:
         return v
     deltas = [b - a for a, b in zip(prev_bottoms, bottoms)
-              if a is not None and b is not None and 0 < b - a < max_step]
+              if a is not None and b is not None and 0 < b - a < max_speed * dt]
     if not deltas:
         return v
     inst = (sorted(deltas)[len(deltas) // 2]) / dt
