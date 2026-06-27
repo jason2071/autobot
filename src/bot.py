@@ -16,12 +16,12 @@ class BotConfig:
     # tiles mode (Magic Tiles 3 style: N lanes, dark tile reaches hit line)
     region: dict | None = None  # {"top","left","width","height"}; window-local
     tiles_lanes: int = 4
-    tiles_hit: float = 0.80      # hit line as a fraction of region height
+    tiles_hit: float = 0.85      # hit line as a fraction of region height
     # a lane has a tile when its brightness is this far BELOW the lane median
     # (relative, so it works for any skin: black, blue, etc.)
     tiles_margin: int = 40
     tiles_sample_h: int = 30     # taller strip = catches faster tiles between polls
-    tiles_lead: int = 28         # sample this many px ABOVE the hit line, so the
+    tiles_lead: int = 12         # sample this many px ABOVE the hit line, so the
                                  # press fires earlier and beats capture/input lag
                                  # (PrintWindow ~15ms/frame needs a bigger lead)
     tiles_poll: float = 0.001    # seconds between scans (fast; tiles speed up)
