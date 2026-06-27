@@ -224,9 +224,9 @@ class App:
         self._slider_group(c_hit, "HIT LINE %", self.tiles_hit,
                            50, 98, 48, "tiles_hit_label", 80)
         # TAP LEAD — raise if it taps late ("กดไม่ทัน"), lower if too early
-        self.tiles_lead = tk.IntVar(value=28)
+        self.tiles_lead = tk.IntVar(value=60)
         self._slider_group(c_lead, "TAP LEAD (px)", self.tiles_lead,
-                           0, 80, 80, "tiles_lead_label", 28)
+                           0, 80, 80, "tiles_lead_label", 60)
 
         # ── CONTRAST | HOLD EXTRA — side by side ──────────────────────────
         sg = ctk.CTkFrame(right, fg_color="transparent")
