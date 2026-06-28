@@ -556,12 +556,22 @@ class BotEngine:
                     # gameplay streak ended (died / left to a menu): score this
                     # attempt's survival and let the tuner pick the next lead.
                     if in_play:
-                        if tuner is not None and now - streak_start >= MIN_STREAK:
-                            tuner.record(now - streak_start)
+                        # survival = how long tiles were actually ACTIVE, not
+                        # wall-clock. A full-screen ad / result screen is sparse
+                        # (cover < tiles_max_cover) so it slips past the gameplay
+                        # gate; without this a 90s interstitial ad reads as a 90s
+                        # "run" and the lead tuner LOCKS a bogus lead from sitting
+                        # on an ad (observed: lead 80 "survived 91.7s" was a video
+                        # ad, not a finished song). `last_active` froze at the real
+                        # death (no tile crossed the lines during the ad), so this
+                        # is the honest play duration.
+                        survived = last_active - streak_start
+                        if tuner is not None and survived >= MIN_STREAK:
+                            tuner.record(survived)
                             lead_s = tuner.current_ms() / 1000.0
                             self.on_status(
                                 f"lead auto: {tuner.current_ms():.0f}ms "
-                                f"(survived {now - streak_start:.1f}s)")
+                                f"(survived {survived:.1f}s)")
                         in_play = False
                     release_all()
                     prev_bottoms = None
