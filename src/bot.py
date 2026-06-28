@@ -503,21 +503,26 @@ class BotEngine:
         v = 0.0
         prev_bottoms = None
         prev_occ = [False] * lanes
+        prev_hit = [False] * lanes  # last frame's hit-line occupancy (for crossings)
         trig_streak = [cfg.tiles_release_frames] * lanes  # trigger-occ debounce
         press_streak = [cfg.tiles_release_frames] * lanes  # early press-zone debounce
         hit_streak = [cfg.tiles_release_frames] * lanes   # hit-occ debounce
         queue: list[predict.Event] = []  # scheduled presses, absolute monotonic
         last_t = time.monotonic()
-        last_active = 0.0  # last time any lane was active (a tile near the line)
+        last_active = 0.0  # last time real gameplay happened (a line crossing/hold)
+        last_cross = 0.0   # last time a tile crossed the hit line (gates the floor)
+        FLOOR_RECENT = 1.5  # floor only fires within this of a real line crossing
 
         def _reset_play() -> None:
             """Fresh board (after a helper tap): forget motion + pending events."""
-            nonlocal v, prev_bottoms, prev_occ
+            nonlocal v, prev_bottoms, prev_occ, prev_hit, last_cross
             release_all()
             queue.clear()
             v = 0.0
             prev_bottoms = None
             prev_occ = [False] * lanes
+            prev_hit = [False] * lanes
+            last_cross = now  # fresh start; floor stays v-gated until tiles move
             for i in range(lanes):
                 trig_streak[i] = cfg.tiles_release_frames
                 press_streak[i] = cfg.tiles_release_frames
@@ -576,6 +581,7 @@ class BotEngine:
                     release_all()
                     prev_bottoms = None
                     prev_occ = [False] * lanes
+                    prev_hit = [False] * lanes
                     # drop pending presses: their absolute `t` is now in the past,
                     # so without this they'd fire in a burst the instant gameplay
                     # resumes (false taps at song start = instant death).
@@ -621,8 +627,25 @@ class BotEngine:
                 hit_occ = tiles_hysteresis(
                     predict.occupancy_at(segs, hit_row - band, hit_row + band),
                     hit_streak, cfg.tiles_release_frames)
-                if any(occ) or any(hit_occ) or any(down):
+                # "gameplay is live" heartbeat: a NEW tile crossed the hit line
+                # (rising edge of hit occupancy) or a hold is in progress. This is
+                # the robust gameplay-vs-menu discriminator: real tiles cross the
+                # hit line every ~0.5s, whereas menu / result / start screens only
+                # have STATIC dark panels at the line (the black START button — no
+                # rising edge) or ANIMATED decorations ABOVE the line (song-list
+                # thumbnails — never reach it). Raw occupancy or per-frame motion
+                # both get fooled by those (a parked START button or a pulsing
+                # thumbnail reads as "active" forever) → last_active never goes
+                # stale → the quiet-gated helper scan never fires → the bot is
+                # stuck, unable to tap START / RETRY (observed deadlocks on both
+                # the START screen and the score screen). Crossing the line is what
+                # only real gameplay does.
+                crossed = any(hit_occ[i] and not prev_hit[i] for i in range(lanes))
+                if crossed:
+                    last_cross = now
+                if crossed or any(down):
                     last_active = now
+                prev_hit = list(hit_occ)
                 queue.extend(e for e in predict.schedule_edges(
                     prev_occ, occ, v, y_trig, hit_row, now, lead_s)
                     if e.kind == "press")
@@ -637,20 +660,23 @@ class BotEngine:
                         arrival[ev.lane] = now + lead_s
 
                 # reactive press floor: a tile sitting ON the hit line that the
-                # prediction missed is tapped immediately. GATED ON v > 0 (tiles
-                # are actually falling). Without the gate, a static between-songs
-                # screen (result / reward / song-select) has dark UI elements
-                # (buttons, text) in the lane bands at the hit line that the floor
-                # taps — which navigates the bot AWAY into random menus (observed:
-                # it wandered from the dead song into the Summer-Pass / daily-song
-                # screens and never retried). A real gameplay tile always carries
-                # board motion (v>0); a static screen does not, so requiring v>0
-                # keeps the floor for missed moving tiles while the START / unlock
-                # helper templates (not the floor) handle the static song-start.
-                # For a moving tile the predictive press already fired, so the
-                # lane is down and this is a no-op.
+                # prediction missed is tapped immediately. GATED on (a) v > 0 and
+                # (b) a real tile crossed the line RECENTLY (now - last_cross <
+                # FLOOR_RECENT). Both gates keep the floor from tapping non-gameplay
+                # UI: a static result / score / song-select screen has dark
+                # elements (buttons, text, song-list thumbnails) sitting in the
+                # lane bands at the hit line, and after a song dies v stays frozen
+                # > 0 (no reset until a helper fires), so the v>0 gate ALONE let the
+                # floor re-tap that static element every max-hold — keeping a lane
+                # held, which kept last_active fresh and DEADLOCKED recovery (stuck
+                # 42s on the score screen, never tapping RETRY). A static screen has
+                # no line crossings, so the recent-crossing gate disables the floor
+                # there; real gameplay crosses the line every ~0.5s so it stays on.
+                # (This also stopped the earlier menu-wandering.) START / unlock /
+                # retry helper templates handle the static between-song screens.
+                floor_live = now - last_cross < FLOOR_RECENT
                 for i in range(lanes):
-                    if press_occ[i] and not down[i] and v > 0:
+                    if press_occ[i] and not down[i] and v > 0 and floor_live:
                         press(i, now)
                         arrival[i] = now + lead_s
 

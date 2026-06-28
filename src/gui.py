@@ -566,10 +566,13 @@ class App:
 
     @staticmethod
     def _helper_templates() -> list[str]:
-        """Screens auto-handled between songs (match full window): the unlock
-        popup is escaped to a playable song, START begins it. Order matters —
-        unlock is checked before START."""
-        return [p for p in ("templates/unlock.png", "templates/start.png")
+        """Screens auto-handled between songs (matched against the whole window
+        and clicked on sight): the unlock popup is escaped to a playable song, an
+        OK dialog (e.g. the "No Internet found" popup in airplane mode) is
+        dismissed, the score-screen RETRY (circular arrow) replays the song, and
+        START begins it. Order matters — most-blocking dialogs first."""
+        return [p for p in ("templates/unlock.png", "templates/ok.png",
+                            "templates/retry_score.png", "templates/start.png")
                 if os.path.isfile(p)]
 
     def _focus_target(self) -> None:
