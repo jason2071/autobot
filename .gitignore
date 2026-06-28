@@ -30,6 +30,7 @@ htmlcov/
 
 # Project tooling
 .claude/
+.understand-anything/
 
 # Secrets / local config
 .env
