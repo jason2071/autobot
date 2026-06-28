@@ -35,12 +35,22 @@ def match_template(
     template: np.ndarray,
     threshold: float = 0.8,
 ) -> list[Match]:
-    """Find all occurrences of `template` in `frame` above `threshold`."""
+    """Find all occurrences of `template` in `frame` above `threshold`.
+
+    Matching is done on GRAYSCALE (luminance) so a full-screen colour tint does
+    not break it: the result / score screen gets a gold "Song of the Day" wash
+    that shifted the BGR channels enough to drop the colour match of the white
+    RETRY (↻) button below threshold (measured 0.68 colour vs 0.76 gray) — the
+    bot then got stuck, unable to retry. The buttons we match are high-contrast
+    shapes, so luminance alone is plenty and it is far more tint-robust.
+    """
     th, tw = template.shape[:2]
     if frame.shape[0] < th or frame.shape[1] < tw:
         return []
 
-    res = cv2.matchTemplate(frame, template, cv2.TM_CCOEFF_NORMED)
+    fg = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+    tg = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY) if template.ndim == 3 else template
+    res = cv2.matchTemplate(fg, tg, cv2.TM_CCOEFF_NORMED)
     ys, xs = np.where(res >= threshold)
 
     matches = [

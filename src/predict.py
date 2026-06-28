@@ -143,7 +143,8 @@ def leading_bottoms(
 def update_velocity(
     v: float, prev_bottoms: list[float | None] | None,
     bottoms: list[float | None], dt: float,
-    alpha: float = 0.3, max_speed: float = 6000.0,
+    alpha: float = 0.2, max_speed: float = 6000.0,
+    max_accel: float = 4000.0,
 ) -> float:
     """Smoothly track the board-wide fall velocity (px/s).
 
@@ -154,6 +155,16 @@ def update_velocity(
     one appearing gives an implausible jump). Gating on speed, not raw pixels,
     means a fast tile on a slow frame isn't wrongly discarded (which would
     freeze `v`).
+
+    Once `v` is established it is also rate-limited to `max_accel` px/s² of
+    change. A real song accelerates gently (~tens of px/s²), but a single-tile
+    frame's leading edge jitters a few px and, divided by a short live frame
+    time, that is hundreds of px/s of phantom swing per frame — enough to mistime
+    the predictive press and miss. The clamp kills that swing while passing real
+    acceleration; it does NOT apply to the first estimate (v<=0, e.g. song
+    start / after a board reset) so `v` still locks on immediately. (Offline
+    replay runs at a fixed frame time so its `v` never swung — this guards the
+    LIVE path, where the loop rate is irregular.)
     """
     if not prev_bottoms or dt <= 0:
         return v
@@ -162,7 +173,11 @@ def update_velocity(
     if not deltas:
         return v
     inst = (sorted(deltas)[len(deltas) // 2]) / dt
-    return inst if v <= 0 else alpha * inst + (1 - alpha) * v
+    if v <= 0:
+        return inst
+    new_v = alpha * inst + (1 - alpha) * v
+    step = max_accel * dt
+    return max(v - step, min(v + step, new_v))
 
 
 # --- trigger-line occupancy + scheduling --------------------------------------
