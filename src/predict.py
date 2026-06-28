@@ -60,16 +60,26 @@ def _merge(runs: list[tuple[int, int]], gap: int) -> list[tuple[int, int]]:
 
 
 def tile_mask(
-    frame, dark_v: int = 60, hue_lo: int = 90, hue_hi: int = 110,
-    sat_min: int = 140, extra_hues: tuple = (),
+    frame, dark_v: int = 60, hue_lo: int = 86, hue_hi: int = 170,
+    sat_min: int = 200, extra_hues: tuple = (),
 ) -> "np.ndarray":
     """A precise boolean tile mask: a pixel is a tile when it is very DARK
-    (V < dark_v → black tap tiles) OR strongly COLOURED in the note hue band
-    (blue/cyan long notes: hue in [hue_lo, hue_hi] with S >= sat_min). Tuned to
-    cleanly reject the bright, busy backgrounds (V > 200, low-sat decorations)
-    that defeat relative-darkness — measured on the real skin: tap V<32, blue
-    H≈99 S>150, background V>227. `extra_hues` adds (hue, tol) pairs for other
-    note colours.
+    (V < dark_v → black tap tiles) OR a VIVID cool-coloured note (hue in
+    [hue_lo, hue_hi] — cyan through blue/navy to magenta — with S >= sat_min).
+
+    The hue band is WIDE (86..170) but the saturation floor is HIGH (>=200), and
+    that split is what makes it precise. Measured on the real skins across many
+    clips: every coloured note is extremely saturated (cyan long notes S 240-255,
+    pink/magenta slides S 216-236, dark-navy long notes S 255) while every busy
+    background — even the saturated ones — stays below it (blue/purple Party-Rock
+    bg H 102-105 S<=193, green bg S<=189, orange bg S<=192, pastel magenta bg
+    S<=156). So `S >= 200` cleanly separates note from background, and the wide
+    hue band then admits navy + magenta notes that the old tight [90,102] band
+    missed entirely (a missed note / slide = instant death). Warm-hued
+    backgrounds (orange/green/red, H < 86) are excluded by the hue floor so they
+    can't false-fire even when momentarily very saturated. `extra_hues` adds
+    (hue, tol) pairs for other note colours (e.g. a warm-coloured note via the
+    GUI eyedropper).
     """
     import cv2
 

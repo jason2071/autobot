@@ -22,6 +22,8 @@ class _LeadTuner:
     """
 
     SWEEP = [0, 40, 80, 120, 160, 200, 240, 300]
+    MIN_TRIES = 3      # always test at least this many leads before locking
+    EARLY_FRAC = 0.6   # ...then stop early once clearly PAST the survival peak
 
     def __init__(self, path: str) -> None:
         self.path = path
@@ -34,15 +36,34 @@ class _LeadTuner:
     def current_ms(self) -> float:
         return self.locked if self.locked is not None else self.SWEEP[self.i]
 
+    def _lock_best(self) -> None:
+        best = max(self.results, key=lambda k: self.results[k])
+        self.locked = float(best)
+
     def record(self, survival_s: float) -> None:
-        """Log this attempt's survival for the current lead, advance the sweep."""
+        """Log this attempt's survival for the current lead, advance the sweep.
+
+        Survival rises with lead up to the value matching this machine's latency,
+        then falls (taps fire on empty). So once we are clearly PAST the peak —
+        the last two tested leads each survived < EARLY_FRAC of the best so far —
+        lock the best instead of burning the remaining (ever-worse) high leads.
+        On a low-latency emulator the best is lead 0 and this converges in ~3
+        attempts instead of 8; on a slow one the peak is late, no early stop.
+        """
         lead = self.current_ms()
         self.results[str(lead)] = max(self.results.get(str(lead), 0.0), survival_s)
         if self.locked is None:
             self.i += 1
             if self.i >= len(self.SWEEP):
-                best = max(self.results, key=lambda k: self.results[k])
-                self.locked = float(best)
+                self._lock_best()
+            elif self.i >= self.MIN_TRIES:
+                best = max(self.results.values())
+                recent = [self.SWEEP[k] for k in range(self.i)][-2:]
+                if best > 0 and all(
+                    self.results.get(str(L), 0.0) < self.EARLY_FRAC * best
+                    for L in recent
+                ):
+                    self._lock_best()
         self._save()
 
     VERSION = 2  # bump to invalidate stale calibration state on upgrade
@@ -84,10 +105,16 @@ class BotConfig:
     # darkness — the false taps that were killing runs. tiles_note_colors adds
     # extra note hues.
     tiles_dark_v: int = 60
-    tiles_hue_lo: int = 90
-    tiles_hue_hi: int = 102   # tight: a blue NOTE is H98-100; a blue/purple
-    tiles_sat_min: int = 155  # BACKGROUND is H104-116 S124-150 V250 — excluded
-                              # by hue>102 / sat<155 so it isn't read as a note
+    # vivid-note band: WIDE hue (cyan→blue→navy→magenta), HIGH saturation floor.
+    # The sat floor is the real discriminator — measured across skins, every
+    # coloured NOTE is S>=216 while every busy BACKGROUND stays S<=193 (incl. the
+    # blue/purple Party-Rock bg at H102-105 S<=193 that the old tight band
+    # false-fired on). So S>=200 separates note from bg, and the wide hue then
+    # catches navy long notes + magenta slides the old [90,102] band missed (a
+    # missed note = instant death). Warm bg (orange/green, H<86) excluded by hue.
+    tiles_hue_lo: int = 86
+    tiles_hue_hi: int = 170
+    tiles_sat_min: int = 200
     # if more than this fraction of the play area is tile-mask, it is NOT a
     # gameplay board (a menu / ad / result screen, or another window covering
     # LDPlayer) — suppress pressing so the bot doesn't tap random UI. Real
@@ -599,15 +626,21 @@ class BotEngine:
                         press(ev.lane, now)
                         arrival[ev.lane] = now + lead_s
 
-                # reactive press floor: a tile sitting ON the hit line that we
-                # have not pressed yet. Covers the STATIC tile the game parks at
-                # the line waiting for a tap to start / continue (velocity is 0,
-                # so nothing schedules it) and any moving tile the prediction
-                # missed. Pressing a tile that is already at the line is always
-                # correct; for moving tiles the predictive press fired earlier so
-                # the lane is already down and this is a no-op.
+                # reactive press floor: a tile sitting ON the hit line that the
+                # prediction missed is tapped immediately. GATED ON v > 0 (tiles
+                # are actually falling). Without the gate, a static between-songs
+                # screen (result / reward / song-select) has dark UI elements
+                # (buttons, text) in the lane bands at the hit line that the floor
+                # taps — which navigates the bot AWAY into random menus (observed:
+                # it wandered from the dead song into the Summer-Pass / daily-song
+                # screens and never retried). A real gameplay tile always carries
+                # board motion (v>0); a static screen does not, so requiring v>0
+                # keeps the floor for missed moving tiles while the START / unlock
+                # helper templates (not the floor) handle the static song-start.
+                # For a moving tile the predictive press already fired, so the
+                # lane is down and this is a no-op.
                 for i in range(lanes):
-                    if press_occ[i] and not down[i]:
+                    if press_occ[i] and not down[i] and v > 0:
                         press(i, now)
                         arrival[i] = now + lead_s
 

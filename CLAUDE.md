@@ -68,12 +68,20 @@ tile will reach the hit line, instead of reacting once it is already there.
 
 - `src/predict.py` is the **predictive detection core** (pure, replay-tested):
   - `tile_mask` — a PRECISE boolean tile mask: a pixel is a tile when very DARK
-    (`V < tiles_dark_v` → black taps) OR in the note hue band (`tiles_hue_lo..hi`
-    + `tiles_sat_min` → blue/cyan long notes; `tiles_note_colors` adds more).
-    This cleanly rejects bright/busy backgrounds (measured on the real skin: tap
-    V<32, blue H≈99 S>150, background V>227) — relative darkness false-fired on
-    the bg gradient and those false taps were instant death. Verified on the live
-    skin: 0 false taps / 0 misses over a full clip across input latencies.
+    (`V < tiles_dark_v` → black taps) OR a VIVID cool-coloured note (hue in
+    `tiles_hue_lo..hi`, **wide** 86–170 = cyan→blue→navy→magenta, AND `S >=
+    tiles_sat_min`, a **high** floor of 200; `tiles_note_colors` adds more). The
+    sat floor is the real discriminator: measured across skins every coloured
+    note is S≥216 (cyan long notes 240–255, magenta slides 216–236, dark-navy
+    long notes 255) while every busy background stays S≤193 (incl. the
+    blue/purple Party-Rock bg at H102–105 — which the OLD tight `[90,102]` band
+    false-fired on at S155+, a phantom tap = death). So `S>=200` separates note
+    from bg, and the wide hue then admits the navy long notes + magenta slides
+    the old band missed ENTIRELY (a slide rendered a fully-blank mask → the bot
+    couldn't see it → death; that was the main "เล่นไม่จบเพลง" cause). Warm
+    backgrounds (orange/green, H<86) are excluded by the hue floor. Verified on
+    real clips: the pink-slide frame went 0.001→0.218 cover (invisible→seen)
+    while the blue-bg Party-Rock frames stayed unchanged (no new false-fire).
   - `lane_segments` — per-lane vertical tile spans `(y_top, y_bottom)` over the
     WHOLE board from that mask (falls back to relative darkness if no mask given);
     crops the score-header / keyboard UI (`tiles_play_top`) and merges guide-line
@@ -90,16 +98,25 @@ tile will reach the hit line, instead of reacting once it is already there.
     → taps fire on empty). When `tiles_auto_lead` is on, the bot sweeps a fixed
     set of lead values across attempts, measuring how long each SURVIVES, then
     locks the best — persisted to `~/.autobot_lead_cal.json` so the user just
-    retries and it converges. The sweep is a fixed set (`_LeadTuner.SWEEP`); the
-    GUI LEAD value is used only when `tiles_auto_lead` is OFF. Delete the cal file
-    to recalibrate.
+    retries and it converges. The sweep is a fixed set (`_LeadTuner.SWEEP`) walked
+    low→high, but survival is unimodal (rises to the lead matching this machine's
+    latency, then falls as taps fire on empty), so it **early-stops** once clearly
+    past the peak (last two leads each survived `< EARLY_FRAC` of the best) — a
+    low-latency emulator (best = lead 0) converges in ~3 attempts instead of 8.
+    The GUI LEAD value is used only when `tiles_auto_lead` is OFF. Delete the cal
+    file to recalibrate.
   - **Reactive press floor** (in `_run_tiles`): besides the scheduled presses, a
-    tile sitting ON the hit line that hasn't been pressed is tapped immediately.
-    This covers the STATIC tile the game parks at the line waiting for a tap to
-    start / continue (velocity 0 → nothing schedules it — the bot would otherwise
-    sit forever) and any moving tile the prediction missed. For moving tiles the
-    predictive press already fired earlier, so the lane is down and this is a
-    no-op; release is gated on the hit band going empty, so it never double-taps.
+    tile sitting ON the hit line that the prediction missed is tapped immediately,
+    **but only while `v > 0`** (the board is actually falling). For a moving tile
+    the predictive press already fired, so the lane is down and this is a no-op;
+    the floor is the safety net for one the prediction missed. The `v>0` gate
+    matters between songs: a static result / reward / song-select screen has dark
+    UI (buttons, text) in the lane bands at the hit line, and WITHOUT the gate the
+    floor tapped them — navigating the bot off into random menus (observed: it
+    wandered from the dead song into the Summer-Pass / daily-song screens and
+    never retried). A static screen has `v==0`, so the gate suppresses it; the
+    song-start tile is handled by the START / unlock **helper templates**, not the
+    floor. Release is gated on the hit band going empty, so it never double-taps.
   - **Release is reactive, not scheduled** (in `_run_tiles`): a press is held
     until the tile actually clears the hit-line band (`occupancy_at(hit±band)`
     falls, debounced). A press fired a few frames early (prediction jitter) is
