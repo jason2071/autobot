@@ -571,8 +571,9 @@ class App:
         OK dialog (e.g. the "No Internet found" popup in airplane mode) is
         dismissed, the score-screen RETRY (circular arrow) replays the song, and
         START begins it. Order matters — most-blocking dialogs first."""
-        return [p for p in ("templates/unlock.png", "templates/ok.png",
-                            "templates/retry_score.png", "templates/start.png")
+        return [p for p in ("templates/unlock.png", "templates/retry.png",
+                            "templates/start.png", "templates/ok.png",
+                            "templates/song_partyrock.png")
                 if os.path.isfile(p)]
 
     def _focus_target(self) -> None:

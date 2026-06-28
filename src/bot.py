@@ -172,7 +172,12 @@ class BotConfig:
                                   # grabs the wrong GPU layer for LDPlayer.
     # helper templates clicked on sight (e.g. retry / start buttons between songs)
     tiles_helpers: list[str] = field(default_factory=list)
-    tiles_helper_threshold: float = 0.8
+    # 0.68: the score-screen RETRY (↻) button renders at a slightly different
+    # scale/position across emulator sessions, so its template match drifts
+    # (measured 0.765 one session, ~1.0 another). 0.8 missed it → the bot could
+    # not auto-retry. 0.68 clears the drift while staying well above the next
+    # helper's score on the same screen (the OK dialog ~0.58), so no misfire.
+    tiles_helper_threshold: float = 0.68
     tiles_helper_interval: float = 0.3  # how often to scan for helper buttons
 
 
@@ -493,8 +498,17 @@ class BotEngine:
                 if "unlock" in path.lower():
                     # leave the locked-song popup -> first bottom thumbnail
                     cx_, cy_ = fw * 0.066, fh * 0.95
+                elif "song_" in path.lower():
+                    # song-select list: the matched album art sits on the LEFT of
+                    # its row; click the PLAY button on the right. The PLAY button
+                    # centre sits a bit BELOW the album-art centre (the art top is
+                    # higher), so nudge y down by ~0.046*H or the tap lands on the
+                    # star/rating row above PLAY.
+                    cx_, cy_ = fw * 0.79, hy + fh * 0.046
                 else:
                     cx_, cy_ = hx, hy
+                name = path.replace("\\", "/").split("/")[-1]
+                self.on_status(f"helper: tapped {name} (match {hits[0][2]:.2f})")
                 touch.tap(lanes, int(ox + cx_), int(oy + cy_))  # background tap
                 return True
             return False
@@ -538,8 +552,29 @@ class BotEngine:
 
                 # Helper scan (full-window grab + template match) is expensive and
                 # halves the capture rate. Only run it when the board has been
-                # QUIET for a while — between songs (waiting on START / unlock).
+                # QUIET for a while — between songs (waiting on START / unlock /
+                # the score-screen RETRY). The score / start screens have no tile
+                # crossing the hit line, so `last_active` goes stale there and
+                # `quiet` trips on its own — no wall-clock fallback needed. (A
+                # fallback that scanned DURING gameplay caused mid-song false
+                # RETRY hits — a gameplay frame matched retry.png at ~0.71 — that
+                # restarted the song every ~2.5s.)
                 quiet = now - last_active > 1.0
+                if quiet and in_play:
+                    # the board went quiet -> this attempt ENDED (died, or left to
+                    # a result screen). Record the real per-attempt survival now
+                    # (streak start -> last line crossing). The result screen
+                    # reads as sparse "gameplay" (low mask cover) so the
+                    # not-a-board branch below never fires for it; without this the
+                    # streak would span several retries and feed the lead tuner one
+                    # giant bogus survival instead of one clean point per attempt.
+                    survived = last_active - streak_start
+                    if tuner is not None and survived >= MIN_STREAK:
+                        tuner.record(survived)
+                        lead_s = tuner.current_ms() / 1000.0
+                        self.on_status(f"lead auto: {tuner.current_ms():.0f}ms "
+                                       f"(survived {survived:.1f}s)")
+                    in_play = False
                 if quiet and now - last_helper >= cfg.tiles_helper_interval:
                     last_helper = now
                     if not locked:           # auto-lock onto the real board
