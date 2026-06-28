@@ -567,11 +567,18 @@ class App:
     @staticmethod
     def _helper_templates() -> list[str]:
         """Screens auto-handled between songs (matched against the whole window
-        and clicked on sight): the unlock popup is escaped to a playable song, an
-        OK dialog (e.g. the "No Internet found" popup in airplane mode) is
-        dismissed, the score-screen RETRY (circular arrow) replays the song, and
-        START begins it. Order matters — most-blocking dialogs first."""
-        return [p for p in ("templates/ad_close.png", "templates/unlock.png",
+        and clicked on sight): a video ad is closed/skipped, the GET-PREMIUM
+        interstitial is dismissed via its X, the unlock popup is escaped to a
+        playable song, an OK dialog (e.g. the "No Internet found" popup in
+        airplane mode) is dismissed, the score-screen RETRY (circular arrow)
+        replays the song, and START begins it. Order matters — `_scan_helpers`
+        taps the FIRST template that matches, so the full-screen blocking
+        interstitials (ad / premium) come first: they overlay the score screen,
+        and until they're gone a retry/start tap lands on the ad and does
+        nothing (observed: the GET-PREMIUM popup froze the bot — no helper
+        matched it, so it sat tapping a phantom retry and never replayed)."""
+        return [p for p in ("templates/ad_close.png",
+                            "templates/premium_close.png", "templates/unlock.png",
                             "templates/retry.png", "templates/start.png",
                             "templates/ok.png", "templates/song_partyrock.png")
                 if os.path.isfile(p)]

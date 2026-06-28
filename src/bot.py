@@ -178,6 +178,16 @@ class BotConfig:
     # not auto-retry. 0.68 clears the drift while staying well above the next
     # helper's score on the same screen (the OK dialog ~0.58), so no misfire.
     tiles_helper_threshold: float = 0.68
+    # per-template threshold overrides (matched by filename substring). The
+    # default 0.68 is tuned for the large/distinctive buttons (retry/start). A
+    # SMALL close-icon template (the GET-PREMIUM "X", ~84px) is not distinctive
+    # enough at 0.68: it false-matches a busy background at up to ~0.72 (measured
+    # on the START screen) and, being earlier in the helper list, would shadow
+    # START so the bot never replays. On the real premium popup it matches ~1.0,
+    # so a high floor (0.9) fires only there. Keyed by substring so it survives a
+    # path prefix change.
+    tiles_helper_thresholds: dict = field(
+        default_factory=lambda: {"premium_close": 0.9, "ad_skip": 0.9})
     tiles_helper_interval: float = 0.3  # how often to scan for helper buttons
 
 
@@ -490,7 +500,13 @@ class BotEngine:
             for path, tpl in helpers:
                 if tpl.shape[0] > fh or tpl.shape[1] > fw:
                     continue
-                hits = detector.match_template(full, tpl, cfg.tiles_helper_threshold)
+                thr = cfg.tiles_helper_threshold
+                pl = path.lower()
+                for key, val in cfg.tiles_helper_thresholds.items():
+                    if key in pl:
+                        thr = val
+                        break
+                hits = detector.match_template(full, tpl, thr)
                 if not hits:
                     continue
                 hx, hy, _ = hits[0]
@@ -686,11 +702,25 @@ class BotEngine:
                     if e.kind == "press")
                 prev_occ = occ
 
-                # fire due presses (record the predicted arrival time)
+                # fire due presses (record the predicted arrival time), but ONLY
+                # if a tile is actually in the press zone right now. The press was
+                # scheduled from a trigger crossing `eta` ago using the velocity
+                # then; if `v` was overestimated (or the tile vanished — a slide
+                # that ended, a mis-segmented background flicker), the tile is NOT
+                # at the line when the press comes due and firing it taps an EMPTY
+                # lane. In Magic Tiles an empty tap is an instant miss → death, so a
+                # phantom scheduled press is strictly worse than a dropped one (a
+                # real tile still has the reactive floor below as a backstop). The
+                # `press_occ` zone reaches from the line UP by the lead distance, so
+                # a correctly-predicted tile is inside it at fire time; only the
+                # phantom presses get dropped. (User-reported "กดมั่ว" — tapping
+                # off-target — was these phantom presses firing on empty lanes.)
                 due = [e for e in queue if e.t <= now]
                 if due:
                     queue = [e for e in queue if e.t > now]
                     for ev in sorted(due, key=lambda e: e.t):
+                        if not press_occ[ev.lane]:
+                            continue  # no tile here now → don't tap empty
                         press(ev.lane, now)
                         arrival[ev.lane] = now + lead_s
 
