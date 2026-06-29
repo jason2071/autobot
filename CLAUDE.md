@@ -186,10 +186,12 @@ ported from) live at the repo root.
   Residual constant offset (capture+input+emulator lag) is absorbed by the one
   live knob `tiles_lead_ms`. dxcam is still the default capture (correct GPU
   layer); BitBlt grabs the WRONG layer for LDPlayer and is never used.
-- **Input is background multi-touch only** (`src/touch.py` `TouchInjector` via
-  Win32 `InjectTouchInput`): one finger per lane, **no focus needed**, real
-  cursor never moves, but LDPlayer must stay **visible/uncovered** (touch hits
-  the topmost window at the point). Driven by the scheduled per-lane event queue
+- **The `touch` input backend** (`src/input/touch.py` `TouchInjector` via Win32
+  `InjectTouchInput`) is background multi-touch: one finger per lane, **no focus
+  needed**, real cursor never moves, but LDPlayer must stay **visible/uncovered**
+  (touch hits the topmost window at the point). It is now OPT-IN — the default is
+  the `wm` backend (see "Background mode" below); pick `touch` for real
+  multi-touch when the window is kept clear. Driven by the scheduled per-lane event queue
   in `_run_tiles` (multi-hold / chords). The old mouse (pyautogui) and keyboard
   (pynput) backends were removed; pynput is still used only for the Esc
   emergency-stop listener.
@@ -203,15 +205,21 @@ ported from) live at the repo root.
   window can sit on a secondary / negative-coordinate monitor). When a run looks
   like total failure, FIRST grab via printwindow to rule out a capture-target
   mismatch before touching detection/timing.
-- **Background mode = play while the game is COVERED by other windows**
-  (`BotConfig.tiles_input="wm"` + `window_method="printwindow"`; GUI checkbox
-  "Background mode"). Capture via PrintWindow (cover-proof) + input via
-  `ld_click.WMInjector` — WM-message clicks POSTED to the render-child HWND, not
-  delivered to the topmost window at the screen point (which is why default
-  InjectTouchInput needs the window uncovered). Verified: with LDPlayer pushed to
-  the z-bottom it still captures gameplay and scores (PERFECT combos). Trade-off:
-  WM is a single mouse button → no true simultaneous multi-touch, so survival is
-  lower than InjectTouchInput on chord-heavy charts. Default stays touch+dxcam.
+- **Background mode is the DEFAULT** = play while the game is COVERED by other
+  windows (`BotConfig.tiles_input="wm"` + `window_method="printwindow"`; GUI
+  checkbox "Background mode", checked by default). Capture via PrintWindow
+  (cover-proof) + input via `ld_click.WMInjector` — WM-message clicks POSTED to
+  the render-child HWND, not delivered to the topmost window at the screen point.
+  Verified: with LDPlayer pushed to the z-bottom it still captures gameplay and
+  scores (PERFECT combos). Trade-off: WM is a single mouse button → **no true
+  simultaneous multi-touch**, so survival is lower than InjectTouchInput on
+  chord-heavy charts. **Cover-proof multi-touch is not achievable** on Windows:
+  WM_POINTER messages are IGNORED by LDPlayer (tested — WM_LBUTTON registers in
+  ~127ms, WM_POINTERDOWN does nothing) because posted pointer messages have no
+  system pointer-info backing, and InjectTouchInput is screen-point/topmost-only.
+  Uncheck the box (→ `tiles_input="touch"` + `window_method="dxcam"`) for real
+  multi-touch + lowest-latency capture when you keep LDPlayer visible/uncovered
+  (best gameplay — e.g. park it on a second monitor where nothing overlaps it).
 - **The target window MOVES and the desktop is multi-monitor — never hardcode the
   window origin.** Read it live every loop (`win.origin()` → GetWindowRect);
   `_run_tiles` already refreshes `ox, oy` so touches follow a dragged window. (Bit

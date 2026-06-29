@@ -169,21 +169,24 @@ class BotConfig:
     # region is window-local. window_method: "bitblt" (fast) keeps the window
     # visible; "printwindow" (slower) is immune to other apps overlapping it.
     target_hwnd: int | None = None
-    window_method: str = "dxcam"  # DXGI duplication: ~0.1ms/grab & pixel-correct
-                                  # (low latency = keeps up as the song speeds up)
-                                  # but grabs the SCREEN RECT, so it captures the
-                                  # WRONG content when the window is covered/off
-                                  # the visible monitor. "printwindow" (~20ms)
-                                  # asks the window to render itself → cover- and
-                                  # monitor-proof; bitblt grabs the wrong GPU
-                                  # layer for LDPlayer.
-    # input backend: "touch" = InjectTouchInput (real multi-touch, no focus, but
-    # hits the TOPMOST window at the point so it needs the window uncovered);
-    # "wm" = WM-message clicks posted to the window HWND (cover-proof, no cursor,
-    # single-point so chords are limited). "wm" + window_method="printwindow" =
-    # BACKGROUND MODE: play while the game is covered by other windows. Requires
-    # target_hwnd. (see src/input/ld_click.py WMInjector)
-    tiles_input: str = "touch"
+    # DEFAULT is BACKGROUND MODE (printwindow + "wm"): play while the game window
+    # is covered by other windows. "printwindow" (~20ms) asks the window to render
+    # itself → cover- and monitor-proof. "dxcam" (~0.1ms, lower latency) is faster
+    # but grabs the SCREEN RECT, so it captures the WRONG content when the window
+    # is covered / moved / off the visible monitor — use it only when the window
+    # is kept visible/uncovered. bitblt grabs the wrong GPU layer for LDPlayer.
+    window_method: str = "printwindow"
+    # input backend: "wm" = WM-message clicks POSTED to the window HWND
+    # (cover-proof, no cursor) — the default, paired with printwindow above; it is
+    # single mouse button so true simultaneous multi-touch (chords) is not
+    # possible (cover-proof multi-touch is not achievable on Windows — WM_POINTER
+    # is ignored by LDPlayer and InjectTouchInput is screen-point/topmost only).
+    # "touch" = InjectTouchInput (real multi-touch, no focus) but hits the TOPMOST
+    # window at the point, so it needs the window VISIBLE/UNCOVERED — pick it
+    # (with window_method="dxcam") for best gameplay when the window is kept clear
+    # (e.g. on a second monitor). "wm" requires target_hwnd; it falls back to
+    # touch when none is set. (see src/input/ld_click.py WMInjector)
+    tiles_input: str = "wm"
     # helper templates clicked on sight (e.g. retry / start buttons between songs)
     tiles_helpers: list[str] = field(default_factory=list)
     # 0.68: the score-screen RETRY (↻) button renders at a slightly different

@@ -197,15 +197,16 @@ class App:
         ctk.CTkLabel(inp_row, text="INPUT", font=self.f_section,
                      text_color=MUTED).grid(row=0, column=0, sticky="w")
 
-        self.bg_mode = tk.BooleanVar(value=False)
+        self.bg_mode = tk.BooleanVar(value=True)   # default = background mode
         ctk.CTkCheckBox(
             left, text="Background mode (play while covered)",
             variable=self.bg_mode, font=self.f_sub, onvalue=True, offvalue=False,
         ).pack(anchor="w", pady=(6, 0))
         self._muted(
-            left, "OFF: InjectTouchInput + dxcam — real multi-touch, but keep\n"
-                  "LDPlayer visible / uncovered. ON: WM-message + PrintWindow —\n"
-                  "plays even when covered by other windows (single-point).",
+            left, "ON (default): WM-message + PrintWindow — plays even when\n"
+                  "covered by other windows (single-point, no chords). OFF:\n"
+                  "InjectTouchInput + dxcam — real multi-touch but keep LDPlayer\n"
+                  "visible / uncovered (best gameplay; e.g. on a 2nd monitor).",
         ).pack(anchor="w", pady=(5, 0))
 
         # ── preview — verify region + lane geometry before tuning ─────────
