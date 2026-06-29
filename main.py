@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Entry point: launch the autobot GUI."""
 
-from src.gui import App
+from src.ui.gui import App
 
 
 def main() -> None:

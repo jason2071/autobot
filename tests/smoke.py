@@ -1,4 +1,4 @@
-"""Smoke test: detector + capture + scale + clicker backend selection.
+"""Smoke test: detector + capture + scale + tiles/predict logic.
 
 Run: python -m tests.smoke   (or `make test`)
 No real clicks are performed.
@@ -12,8 +12,9 @@ import os
 import cv2
 import numpy as np
 
-from src import detector, clicker, bot
-from src.capture import ScreenCapture
+from src.detect import detector
+from src.core import bot
+from src.capture.screen import ScreenCapture
 from tests.predict_replay import test_predict_replay
 
 
@@ -55,17 +56,6 @@ def test_capture_and_scale() -> None:
     print(f"  capture OK -> {mon['width']}x{mon['height']}, region {f.shape[:2]}")
 
 
-def test_clicker_scale() -> None:
-    cap = ScreenCapture()
-    c = clicker.Clicker(capture_width=cap.primary_monitor["width"])
-    cap.close()
-    assert c.scale > 0
-    print(
-        f"  clicker scale={c.scale:.3f}  background_supported="
-        f"{clicker.BACKGROUND_SUPPORTED}"
-    )
-
-
 def _lane_darks(img, lanes=4, hit=0.80, sample_h=18, lead=12, margin=40):
     """Replicate the bot's per-lane sampling for a frame, return dark flags.
 
@@ -88,7 +78,7 @@ def test_tiles_logic() -> None:
 
 
 def test_predict_logic() -> None:
-    from src import predict
+    from src.core import predict
 
     # segmentation: a synthetic board, lane 0 holds a tall dark tile (a long
     # note), lane 1 a short tile, lanes 2/3 empty. Header above y_lo is ignored.
@@ -134,7 +124,7 @@ def test_predict_logic() -> None:
 
 def test_lead_tuner() -> None:
     import tempfile
-    from src.bot import _LeadTuner
+    from src.core.bot import _LeadTuner
     p = os.path.join(tempfile.gettempdir(), "_smoke_lead_cal.json")
     if os.path.exists(p):
         os.remove(p)
@@ -234,7 +224,6 @@ def main() -> None:
     for name, fn in [
         ("template/color", test_template_match),
         ("capture/region", test_capture_and_scale),
-        ("clicker/scale", test_clicker_scale),
         ("tiles/logic", test_tiles_logic),
         ("predict/logic", test_predict_logic),
         ("lead/tuner", test_lead_tuner),

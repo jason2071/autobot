@@ -126,16 +126,18 @@ when the asset is missing, so a clean checkout still passes.
 ## Structure
 
 ```
-main.py                — entry
-src/gui.py             — customtkinter App (config form, lane preview, countdown)
-src/bot.py             — BotEngine + BotConfig; the tiles loop (_run_tiles) + auto-lead tuner
-src/predict.py         — predictive detection core (tile mask, segments, velocity, scheduling)
-src/window_capture.py  — WindowCapture (dxcam / PrintWindow, window-bound HWND grab)
-src/touch.py           — TouchInjector (InjectTouchInput) + cursor-guard mouse hook
-src/capture.py         — ScreenCapture (mss) for eyedropper / scale
-src/window_picker.py   — list_windows() + focus_window() (Win32)
-src/detector.py        — match_template() for the START / unlock helper buttons
-src/clicker.py         — legacy (imported by the smoke test only)
+main.py                       — entry
+src/ui/gui.py                 — customtkinter App (config form, lane preview, countdown)
+src/core/bot.py               — BotEngine + BotConfig; the tiles loop (_run_tiles) + auto-lead tuner
+src/core/predict.py           — predictive detection core (tile mask, segments, velocity, scheduling)
+src/capture/window_capture.py — WindowCapture (dxcam / PrintWindow, window-bound HWND grab)
+src/capture/screen.py         — ScreenCapture (mss) for eyedropper / scale
+src/capture/window_picker.py  — list_windows() + focus_window() (Win32)
+src/detect/detector.py        — match_template() for the START / unlock helper buttons
+src/input/touch.py            — TouchInjector (InjectTouchInput) + cursor-guard mouse hook
+src/input/ld_click.py         — LDMessageClicker (LDPlayer message-click fallback)
+src/toolkit/ezcbot.py         — reusable EzCBot toolkit (port of reference/EzCBot.cs)
+reference/EzCBot.cs           — original C# bot toolkit (ported to toolkit/ezcbot.py)
 ```
 
 See `CLAUDE.md` for the full architecture notes and the non-obvious gotchas.

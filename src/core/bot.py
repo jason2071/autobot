@@ -9,8 +9,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .capture import ScreenCapture
-from . import detector
+from ..capture.screen import ScreenCapture
+from ..detect import detector
 
 
 class _LeadTuner:
@@ -367,7 +367,7 @@ class BotEngine:
         # window-local and (ox, oy) maps it back to screen for touch.
         win = None
         if cfg.target_hwnd:
-            from .window_capture import WindowCapture
+            from ..capture.window_capture import WindowCapture
             win = WindowCapture(cfg.target_hwnd, cfg.window_method)
         src_grab = win.grab if win else cap.grab
         ox, oy = win.origin() if win else (0, 0)
@@ -411,7 +411,7 @@ class BotEngine:
             locked = True
 
         # --- per-lane actuator: background multi-touch (one finger per lane) ---
-        from .touch import TouchInjector
+        from ..input.touch import TouchInjector
         touch = TouchInjector(max_contacts=max(lanes + 2, 10))
 
         down = [False] * lanes          # which lanes are currently held

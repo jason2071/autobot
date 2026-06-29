@@ -45,7 +45,7 @@ test: $(VENV) ## run smoke test (detector + capture + scale)
 
 .PHONY: detect
 detect: $(VENV) ## test template match: make detect IMG=a.png TPL=b.png
-	$(PY) -m src.detector $(IMG) $(TPL)
+	$(PY) -m src.detect.detector $(IMG) $(TPL)
 
 .PHONY: clean
 clean: ## remove venv + __pycache__

@@ -48,12 +48,26 @@ all inside `BotEngine._run_tiles` running on a daemon thread. Detection is
 **predictive**: it tracks each tile's fall and schedules the press for when the
 tile will reach the hit line, instead of reacting once it is already there.
 
-- `main.py` → `src/gui.py` `App` (customtkinter, fixed-size two-column window).
+**Package layout** (`src/`, grouped by concern):
+- `core/` — `bot.py` (BotEngine / BotConfig + the `_run_tiles` loop + auto-lead
+  tuner), `predict.py` (pure predictive-detection primitives)
+- `capture/` — `window_capture.py` (WindowCapture: dxcam / PrintWindow),
+  `screen.py` (ScreenCapture: mss), `window_picker.py`
+- `detect/` — `detector.py` (template + color/pixel match)
+- `input/` — `touch.py` (TouchInjector — primary), `ld_click.py` (LDPlayer
+  message-click fallback)
+- `toolkit/` — `ezcbot.py` (reusable EzCBot port; re-exports the modules above)
+- `ui/` — `gui.py` (customtkinter App)
+
+`main.py` (entry) and `reference/EzCBot.cs` (the original C# toolkit this was
+ported from) live at the repo root.
+
+- `main.py` → `src/ui/gui.py` `App` (customtkinter, fixed-size two-column window).
   The GUI builds a `BotConfig` in `_build_config`, validates, then runs a 3s
   countdown and starts a `BotEngine`. Status flows back via an `on_status`
   callback that marshals to Tk with `root.after` (the engine runs off-thread).
 
-- `src/bot.py` is the core. `BotConfig` (dataclass) holds every tunable. Geometry
+- `src/core/bot.py` is the core. `BotConfig` (dataclass) holds every tunable. Geometry
   + helper-detection **pure functions** live here:
   - `tiles_lane_geometry` / `tiles_board_edges` — auto-detect the board's left/
     right edges (vertical-Sobel) so side margins don't shift the lanes; fall back
@@ -66,7 +80,7 @@ tile will reach the hit line, instead of reacting once it is already there.
   - `tiles_hysteresis` — debounces the trigger-line occupancy (`tiles_release_
     frames`) so flicker doesn't fire phantom edges.
 
-- `src/predict.py` is the **predictive detection core** (pure, replay-tested):
+- `src/core/predict.py` is the **predictive detection core** (pure, replay-tested):
   - `tile_mask` — a PRECISE boolean tile mask: a pixel is a tile when very DARK
     (`V < tiles_dark_v` → black taps) OR a VIVID cool-coloured note (hue in
     `tiles_hue_lo..hi`, **wide** 86–170 = cyan→blue→navy→magenta, AND `S >=
@@ -93,7 +107,7 @@ tile will reach the hit line, instead of reacting once it is already there.
     lead` above the hit line) is the dedup: a tile's bottom crossing it (rising
     edge) schedules a **press** for `now + (hit−trig)/v − lead`. `tiles_lead_ms`
     is the fixed input+emulator latency offset (tune live).
-  - **Auto-lead tuner** (`_LeadTuner` in `src/bot.py`): the press LEAD must match
+  - **Auto-lead tuner** (`_LeadTuner` in `src/core/bot.py`): the press LEAD must match
     the real input+emulator latency (too low → taps land late and miss; too high
     → taps fire on empty). When `tiles_auto_lead` is on, the bot sweeps a fixed
     set of lead values across attempts, measuring how long each SURVIVES, then
@@ -140,7 +154,7 @@ tile will reach the hit line, instead of reacting once it is already there.
   removed — it could only react once a tile was at the line and plateaued as
   songs sped up.
 
-- **Capture** is window-bound. `src/window_capture.py` `WindowCapture` grabs one
+- **Capture** is window-bound. `src/capture/window_capture.py` `WindowCapture` grabs one
   HWND directly so coordinates are **window-local** and other windows don't
   interfere. Three methods: **`dxcam`** (default) — DXGI desktop duplication of
   the window's screen rect, ~0.1ms/grab and pixel-correct; low capture latency is
@@ -148,13 +162,13 @@ tile will reach the hit line, instead of reacting once it is already there.
   tap too late). `printwindow` (~20ms, overlap-proof) is the fallback when dxcam
   is unavailable. `bitblt` grabs the WRONG GPU layer for LDPlayer (verified: a
   full-frame mismatch) so it is never used for the emulator. dxcam needs the
-  window visible/uncovered — already required for touch. `src/capture.py`
-  `ScreenCapture` (mss) is used for the eyedropper / scale. `src/window_picker.py`
+  window visible/uncovered — already required for touch. `src/capture/screen.py`
+  `ScreenCapture` (mss) is used for the eyedropper / scale. `src/capture/window_picker.py`
   lists windows and `focus_window`s the target (Win32 / AppleScript).
 
-- `src/detector.py` (`match_template`, `load_template`) backs the helper-template
-  scan (START/unlock buttons). `src/clicker.py` is legacy (tiles uses pyautogui
-  directly) but still imported by the smoke test.
+- `src/detect/detector.py` (`match_template`, `load_template`) backs the helper-template
+  scan (START/unlock buttons). The legacy pyautogui `clicker` module was removed
+  in the subpackage refactor (tiles input is `input/touch.py` only).
 
 ## Non-obvious things that bite
 

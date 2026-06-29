@@ -30,7 +30,7 @@ import os
 
 import cv2
 
-from src import bot, predict
+from src.core import bot, predict
 
 CLIPS = "templates/gameplay*.mp4"
 HIT = 0.80          # hit line as fraction of board height

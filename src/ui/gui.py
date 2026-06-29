@@ -10,9 +10,9 @@ import customtkinter as ctk
 import numpy as np
 import pyautogui
 
-from .bot import BotConfig, BotEngine
-from .capture import ScreenCapture
-from . import window_picker
+from ..core.bot import BotConfig, BotEngine
+from ..capture.screen import ScreenCapture
+from ..capture import window_picker
 
 # --- palette ------------------------------------------------------------------
 BG = "#15171e"
@@ -321,7 +321,7 @@ class App:
             self._set_status("set the TARGET region first")
             return
         if self.target_hwnd is not None:  # capture the window directly
-            from .window_capture import WindowCapture
+            from ..capture.window_capture import WindowCapture
             cap = WindowCapture(self.target_hwnd, "printwindow")
         else:
             cap = ScreenCapture()
@@ -333,7 +333,7 @@ class App:
         lanes = 4
         hit_y = int(h * self.tiles_hit.get() / 100)
         # same auto lane detection the bot uses, so the preview is truthful
-        from .bot import tiles_lane_geometry, tiles_board_edges
+        from ..core.bot import tiles_lane_geometry, tiles_board_edges
         centers, bands = tiles_lane_geometry(frame, lanes)
         edges = tiles_board_edges(frame)
         if edges:  # mark detected board edges
