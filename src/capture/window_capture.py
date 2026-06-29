@@ -11,7 +11,9 @@ to absolute screen coords for clicking. Windows only.
 
 from __future__ import annotations
 
-from ctypes import windll
+import ctypes
+import re
+from ctypes import windll, wintypes
 from typing import Any
 
 import numpy as np
@@ -20,6 +22,48 @@ import win32ui  # type: ignore
 import win32con  # type: ignore
 
 _PW_RENDERFULLCONTENT = 2
+_MONITOR_DEFAULTTONEAREST = 2
+_MONITORINFOF_PRIMARY = 1
+
+
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG),
+                ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", _RECT),
+                ("rcWork", _RECT), ("dwFlags", wintypes.DWORD)]
+
+
+def _window_monitor(hwnd: int) -> tuple[int, int, int, int, bool]:
+    """(left, top, width, height, is_primary) of the monitor the window sits on,
+    in physical screen pixels. Lets a dxcam capture pick the right OUTPUT and
+    convert to output-local coords — without this, dxcam only sees the PRIMARY
+    monitor and a window on a second display fails ('Invalid Region')."""
+    u = windll.user32
+    hmon = u.MonitorFromWindow(hwnd, _MONITOR_DEFAULTTONEAREST)
+    mi = _MONITORINFO()
+    mi.cbSize = ctypes.sizeof(_MONITORINFO)
+    u.GetMonitorInfoW(hmon, ctypes.byref(mi))
+    r = mi.rcMonitor
+    return (r.left, r.top, r.right - r.left, r.bottom - r.top,
+            bool(mi.dwFlags & _MONITORINFOF_PRIMARY))
+
+
+def _parse_dxcam_outputs(info: str) -> list[dict]:
+    """Parse `dxcam.output_info()` into [{device, output, width, height,
+    primary}], so an output can be matched to a monitor by resolution."""
+    out = []
+    for m in re.finditer(
+        r"Device\[(\d+)\]\s*Output\[(\d+)\]:\s*Res:\((\d+),\s*(\d+)\)"
+        r".*?Primary:(\w+)", info):
+        out.append({
+            "device": int(m.group(1)), "output": int(m.group(2)),
+            "width": int(m.group(3)), "height": int(m.group(4)),
+            "primary": m.group(5).lower() == "true",
+        })
+    return out
 
 
 class WindowCapture:
@@ -46,16 +90,21 @@ class WindowCapture:
         self._save: Any = None
         self._bmp: Any = None
         self._size = (0, 0)
-        self._cam: Any = None      # dxcam camera (created lazily)
+        self._cam: Any = None      # dxcam camera (created lazily, per output)
         self._last: Any = None     # last good dxcam frame (grab() returns None if no
                               # new display frame yet — reuse the previous one)
+        self._dxcam: Any = None    # the dxcam module
+        self._outputs: list[dict] = []   # parsed output_info()
+        self._out_key: tuple | None = None   # (device, output) of the live camera
+        self._out_origin = (0, 0)  # that output's top-left in screen pixels
         if method == "dxcam":
             try:
                 import dxcam
-                self._cam = dxcam.create(output_color="BGR")
+                self._dxcam = dxcam
+                self._outputs = _parse_dxcam_outputs(dxcam.output_info())
             except Exception:  # fall back to PrintWindow if dxcam missing
                 self.method = "printwindow"
-                self._cam = None
+                self._dxcam = None
 
     def origin(self) -> tuple[int, int]:
         """Current (left, top) of the window in absolute screen pixels."""
@@ -129,19 +178,59 @@ class WindowCapture:
             arr = arr[y0:y1, x0:x1]
         return np.ascontiguousarray(arr)
 
+    def _ensure_cam(self) -> tuple[int, int]:
+        """(Re)create the dxcam camera bound to the OUTPUT showing this window,
+        and return that output's screen-pixel origin. dxcam grabs in coords local
+        to its output, so a window on a second monitor needs the matching output
+        plus an origin offset — `dxcam.create()` alone only ever sees the primary
+        display."""
+        ml, mt, mw, mh, primary = _window_monitor(self.hwnd)
+        # match the dxcam output to this monitor by resolution (+ primary flag to
+        # disambiguate identical resolutions); fall back to output 0.
+        match = None
+        for o in self._outputs:
+            if o["width"] == mw and o["height"] == mh:
+                if match is None or o["primary"] == primary:
+                    match = o
+        if match is None:
+            match = self._outputs[0] if self._outputs else {"device": 0, "output": 0}
+        key = (match["device"], match["output"])
+        if key != self._out_key:
+            if self._cam is not None:
+                try:
+                    self._cam.release()
+                except Exception:
+                    pass
+            self._cam = self._dxcam.create(
+                device_idx=match["device"], output_idx=match["output"],
+                output_color="BGR")
+            self._out_key = key
+            self._last = None
+        self._out_origin = (ml, mt)
+        return ml, mt
+
     def _grab_dxcam(self, l, t, w, h, region) -> np.ndarray:
-        """DXGI grab of the window's absolute screen rect, then crop the
-        requested window-local region locally. Always captures the FULL window
-        (so the cached `_last` has a stable shape across strip/full calls) and
-        reuses it when the duplication API has no newer frame (sub-16ms polls)."""
-        sx, sy = max(l, 0), max(t, 0)
-        frame = self._cam.grab(region=(sx, sy, l + w, t + h))
+        """DXGI grab of the window's screen rect (in its OUTPUT's local coords),
+        then crop the requested window-local region locally. Always captures the
+        FULL window (so the cached `_last` has a stable shape across strip/full
+        calls) and reuses it when the duplication API has no newer frame."""
+        ox, oy = self._ensure_cam()
+        ow = self._outputs and next(
+            (o["width"] for o in self._outputs
+             if (o["device"], o["output"]) == self._out_key), None)
+        oh = next((o["height"] for o in self._outputs
+                   if (o["device"], o["output"]) == self._out_key), None)
+        sx, sy = max(l - ox, 0), max(t - oy, 0)
+        ex = (min(l - ox + w, ow) if ow else l - ox + w)
+        ey = (min(t - oy + h, oh) if oh else t - oy + h)
+        reg = (sx, sy, ex, ey)
+        frame = self._cam.grab(region=reg)
         if frame is None:           # no new display frame since last grab
             frame = self._last
             if frame is None:       # cold start: block briefly for first frame
                 import time
                 for _ in range(50):
-                    frame = self._cam.grab(region=(sx, sy, l + w, t + h))
+                    frame = self._cam.grab(region=reg)
                     if frame is not None:
                         break
                     time.sleep(0.005)
