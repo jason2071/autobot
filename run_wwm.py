@@ -77,7 +77,7 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="list windows and exit")
     ap.add_argument("--method", default="dxcam", choices=["dxcam", "printwindow"])
     ap.add_argument("--offset", type=int, default=None,
-                    help="cue lead in px (higher = lights earlier; default 90)")
+                    help="cue lead in px (higher = lights earlier; default 130)")
     ap.add_argument("--actuate", action="store_true",
                     help="SEND keys to the game (unsafe on anti-cheat titles)")
     args = ap.parse_args()
