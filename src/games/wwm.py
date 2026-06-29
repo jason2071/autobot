@@ -144,8 +144,11 @@ class WWMConfig:
     hit_band: int = 28                  # half-height of the press/hit band (px@H
                                         # this is ~half a note circle: a note is
                                         # "on the target" within ±hit_band of it)
-    press_offset_px: int = 0            # shift the band UP to press earlier — the
-                                        # one live latency knob (capture+input lag)
+    press_offset_px: int = 40           # shift the band UP to fire EARLIER — the
+                                        # one live timing knob. Raise it if the
+                                        # hit lands late (note already on the
+                                        # target before it fires); lower if early.
+                                        # ~px; at ~520 px/s, 40px ≈ 77ms earlier.
     min_run: int = 18
     dark_frac: float = 0.42
     merge_gap: int = 18                 # bridge a note's centre-icon hole

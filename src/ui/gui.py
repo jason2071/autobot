@@ -392,9 +392,9 @@ class App:
         c0.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         c1 = ctk.CTkFrame(sg, fg_color="transparent")
         c1.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
-        self.wwm_offset = tk.IntVar(value=0)
+        self.wwm_offset = tk.IntVar(value=40)
         self._slider_group(c0, "PRESS OFFSET (px)", self.wwm_offset,
-                           -40, 120, 160, "wwm_offset_label", 0)
+                           -40, 200, 240, "wwm_offset_label", 40)
         self.wwm_band = tk.IntVar(value=28)
         self._slider_group(c1, "HIT BAND (px)", self.wwm_band,
                            16, 48, 32, "wwm_band_label", 28)
