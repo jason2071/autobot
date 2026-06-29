@@ -19,12 +19,8 @@ import threading
 import time
 from ctypes import wintypes
 
-try:
-    _u = ctypes.windll.user32
-    _k = ctypes.windll.kernel32
-    _OK = True
-except Exception:  # pragma: no cover - non-Windows
-    _OK = False
+_u = ctypes.windll.user32   # Windows-only: InjectTouchInput + low-level mouse hook
+_k = ctypes.windll.kernel32
 
 PT_TOUCH = 0x02
 PF_DOWN, PF_UPDATE, PF_UP = 0x00010000, 0x00020000, 0x00040000
@@ -37,13 +33,12 @@ _WM_QUIT = 0x0012
 _LLMHF_INJECTED = 0x00000001
 _ULONG_PTR = ctypes.c_size_t
 
-if _OK:
-    _HOOKPROC = ctypes.WINFUNCTYPE(
-        ctypes.c_ssize_t, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
-    _u.CallNextHookEx.restype = ctypes.c_ssize_t
-    _u.CallNextHookEx.argtypes = [
-        wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM]
-    _u.SetWindowsHookExW.restype = wintypes.HHOOK
+_HOOKPROC = ctypes.WINFUNCTYPE(
+    ctypes.c_ssize_t, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+_u.CallNextHookEx.restype = ctypes.c_ssize_t
+_u.CallNextHookEx.argtypes = [
+    wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM]
+_u.SetWindowsHookExW.restype = wintypes.HHOOK
 
 
 class _MSLLHOOKSTRUCT(ctypes.Structure):
@@ -127,8 +122,6 @@ class TouchInjector:
     """Multi-finger touch injector. `slot` is the lane index (one finger each)."""
 
     def __init__(self, max_contacts: int = 10, restore_cursor: bool = True) -> None:
-        if not _OK:
-            raise RuntimeError("touch injection needs Windows (user32)")
         # MODE_DEFAULT = 1
         if not _u.InitializeTouchInjection(max_contacts, 1):
             raise RuntimeError("InitializeTouchInjection failed")

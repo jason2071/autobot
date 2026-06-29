@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
 import tkinter as tk
 
 import customtkinter as ctk
@@ -355,10 +354,10 @@ class App:
         maxw, maxh = 460, 860
         scale = min(maxw / w, maxh / h, 1.0)
         disp = img.resize((max(1, int(w * scale)), max(1, int(h * scale))),
-                          Image.NEAREST)
+                          Image.Resampling.NEAREST)
         tkimg = ImageTk.PhotoImage(disp)
         lbl = tk.Label(win, image=tkimg, bd=0)
-        lbl.image = tkimg  # keep ref
+        lbl.image = tkimg  # type: ignore[attr-defined]  # keep ref
         lbl.pack()
 
     @staticmethod
@@ -409,13 +408,13 @@ class App:
                        max(x0, 0):min(x0 + side, w)]
             tile = Image.new("RGB", (side, side), (0, 0, 0))
             tile.paste(Image.fromarray(crop), (max(0, -x0), max(0, -y0)))
-            big = tile.resize((size, size), Image.NEAREST)
+            big = tile.resize((size, size), Image.Resampling.NEAREST)
             d = ImageDraw.Draw(big)
             c = HALF * Z
             d.rectangle([c, c, c + Z - 1, c + Z - 1], outline=(255, 0, 0), width=2)
             tkimg = ImageTk.PhotoImage(big)
             img_lbl.configure(image=tkimg)
-            img_lbl.image = tkimg  # keep ref
+            img_lbl.image = tkimg  # type: ignore[attr-defined]  # keep ref
             b, g, r = (int(v) for v in frame[cy, cx])
             txt_lbl.configure(text=f"#{r:02x}{g:02x}{b:02x}  ({cx},{cy})")
             # place near cursor, flip away from screen edges

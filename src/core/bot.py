@@ -9,6 +9,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
+import cv2
+import numpy as np
+
 from ..capture.screen import ScreenCapture
 from ..detect import detector
 
@@ -212,11 +215,9 @@ def tiles_color_lanes(frame, lane_bands_x, bgr, hue_tol, min_frac=0.30):
     `frame` is the BGR strip; `lane_bands_x` is the list of (x0, x1) columns.
     Returns one bool per lane.
     """
-    import cv2
-    import numpy as np
-
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    th, ts, tv = cv2.cvtColor(np.uint8([[list(bgr)]]), cv2.COLOR_BGR2HSV)[0][0]
+    th = cv2.cvtColor(np.array([[list(bgr)]], dtype=np.uint8),
+                      cv2.COLOR_BGR2HSV)[0][0][0]
     lo = np.array([max(int(th) - hue_tol, 0), 80, 80])
     hi = np.array([min(int(th) + hue_tol, 179), 255, 255])
     mask = cv2.inRange(hsv, lo, hi)
@@ -232,9 +233,6 @@ def tiles_board_edges(frame: "np.ndarray") -> tuple[int, int] | None:
     makes the board borders the outermost strong peaks. Returns (left, right)
     in frame-x, or None if detection is unreliable (caller falls back).
     """
-    import cv2
-    import numpy as np
-
     h, w = frame.shape[:2]
     if w < 20 or h < 20:
         return None
@@ -359,6 +357,7 @@ class BotEngine:
 
         cfg = self.config
         mon = cfg.region  # validated non-None for tiles mode
+        assert mon is not None
         lanes = max(1, cfg.tiles_lanes)
         H = mon["height"]
 
@@ -450,17 +449,15 @@ class BotEngine:
                     self._stop.set()
                     return False
 
-            listener = keyboard.Listener(on_press=_on_press)
+            listener = keyboard.Listener(on_press=_on_press)  # type: ignore[arg-type]
             listener.start()
         except Exception:
             listener = None
 
         # extra note hues (from configured BGR colours) for the tile mask
-        import cv2 as _cv2
-        import numpy as _np
         extra_hues = tuple(
-            (int(_cv2.cvtColor(_np.uint8([[list(bgr)]]),
-                               _cv2.COLOR_BGR2HSV)[0][0][0]), cfg.tiles_note_tol)
+            (int(cv2.cvtColor(np.array([[list(bgr)]], dtype=np.uint8),
+                              cv2.COLOR_BGR2HSV)[0][0][0]), cfg.tiles_note_tol)
             for bgr in cfg.tiles_note_colors)
 
         def _segments(board):

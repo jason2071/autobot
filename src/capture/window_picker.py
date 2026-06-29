@@ -8,6 +8,11 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # resolved for the type checker; real availability = the flags below
+    import Quartz  # type: ignore
+    import win32gui  # type: ignore
 
 try:
     import Quartz  # type: ignore

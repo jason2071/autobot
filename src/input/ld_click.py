@@ -25,11 +25,7 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 
-try:
-    _u = ctypes.windll.user32
-    _OK = True
-except Exception:  # pragma: no cover - non-Windows
-    _OK = False
+_u = ctypes.windll.user32  # Windows-only: LDPlayer Win32 messaging
 
 WM_MOUSEMOVE = 0x0200
 WM_LBUTTONDOWN = 0x0201
@@ -43,18 +39,17 @@ _RENDER_CANDIDATES = [
     ("subWin", None),                # some LD9 builds nest the render under subWin
 ]
 
-if _OK:
-    _u.FindWindowExW.restype = wintypes.HWND
-    _u.FindWindowExW.argtypes = [
-        wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
-    _u.SendMessageW.restype = ctypes.c_ssize_t
-    _u.SendMessageW.argtypes = [
-        wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-    _u.PostMessageW.restype = wintypes.BOOL
-    _u.PostMessageW.argtypes = [
-        wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-    _u.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-    _u.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+_u.FindWindowExW.restype = wintypes.HWND
+_u.FindWindowExW.argtypes = [
+    wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
+_u.SendMessageW.restype = ctypes.c_ssize_t
+_u.SendMessageW.argtypes = [
+    wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+_u.PostMessageW.restype = wintypes.BOOL
+_u.PostMessageW.argtypes = [
+    wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+_u.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+_u.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
 
 
 def _lparam(x: int, y: int) -> int:
@@ -74,7 +69,7 @@ def find_render_child(hwnd):
     Tries the known (class, text) pairs first; falls back to scanning every
     descendant for a class containing "Render".
     """
-    if not _OK or not hwnd:
+    if not hwnd:
         return None
     for cls, txt in _RENDER_CANDIDATES:
         child = _u.FindWindowExW(hwnd, None, cls, txt)
@@ -100,8 +95,6 @@ def child_origin(parent, child) -> tuple[int, int]:
     Add this to a child-client coord to get a parent-window coord; subtract it to
     go the other way. Lets callers pass main-window-local coords and convert.
     """
-    if not _OK:
-        return (0, 0)
     pr, cr = wintypes.RECT(), wintypes.RECT()
     _u.GetWindowRect(parent, ctypes.byref(pr))
     _u.GetWindowRect(child, ctypes.byref(cr))
@@ -117,8 +110,6 @@ class LDMessageClicker:
     """
 
     def __init__(self, hwnd, post: bool = False) -> None:
-        if not _OK:
-            raise RuntimeError("ld_click needs Windows (user32)")
         self.parent = hwnd
         self.child = find_render_child(hwnd)
         if not self.child:

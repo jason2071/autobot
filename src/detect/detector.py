@@ -74,8 +74,8 @@ def find_color(
     confidence, always in (0, 1]).
     """
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    target = np.uint8([[list(bgr_target)]])
-    h, s, v = cv2.cvtColor(target, cv2.COLOR_BGR2HSV)[0][0]
+    target = np.array([[list(bgr_target)]], dtype=np.uint8)
+    h = cv2.cvtColor(target, cv2.COLOR_BGR2HSV)[0][0][0]
 
     lower = np.array([max(int(h) - tolerance, 0), 60, 60])
     upper = np.array([min(int(h) + tolerance, 179), 255, 255])
@@ -121,10 +121,13 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) != 3:
-        print("usage: python -m src.detector <screenshot.png> <template.png>")
+        print("usage: python -m src.detect.detector <screenshot.png> <template.png>")
         sys.exit(1)
 
     frame = cv2.imread(sys.argv[1], cv2.IMREAD_COLOR)
+    if frame is None:
+        print(f"cannot read image: {sys.argv[1]}")
+        sys.exit(1)
     tpl = load_template(sys.argv[2])
     hits = match_template(frame, tpl, threshold=0.8)
     print(f"found {len(hits)} match(es):")
