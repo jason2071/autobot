@@ -628,6 +628,12 @@ class BotEngine:
                         in_play = False
                     release_all()
                     prev_bottoms = None
+                    # forget the carried-over fall speed: the next gameplay frame
+                    # re-locks `v` from scratch (update_velocity's v<=0 path locks
+                    # on instantly). Without this, a stale `v` from the previous
+                    # song/phrase mistimes the FIRST predictive press after the
+                    # gap — and in Magic Tiles one mistimed/missed tile = death.
+                    v = 0.0
                     prev_occ = [False] * lanes
                     prev_hit = [False] * lanes
                     # drop pending presses: their absolute `t` is now in the past,
@@ -646,6 +652,19 @@ class BotEngine:
                 last_t = now
                 bottoms = predict.leading_bottoms(segs, hit_row)
                 v = predict.update_velocity(v, prev_bottoms, bottoms, dt)
+                # live downward motion THIS frame: a leading edge actually fell
+                # (>2px) since last frame. Unlike `v` — which is carried over and
+                # stays > 0 on a frozen/stale board — this is zero on any static
+                # menu / score / song-select screen, so parked UI can't fake it.
+                # It arms the reactive floor for the FIRST tile of a song (before
+                # any hit-line crossing has set `last_cross`, i.e. while
+                # `floor_live` is still false), which was otherwise dropped — and
+                # in Magic Tiles one dropped tile = instant death (the ~4-6s
+                # deaths every attempt). Gated on real motion, it does NOT reopen
+                # the menu-wandering hole the crossing gate closed.
+                live_motion = bool(prev_bottoms) and any(
+                    a is not None and b is not None and (b - a) > 2.0
+                    for a, b in zip(prev_bottoms, bottoms))
                 prev_bottoms = bottoms
 
                 # PRESS is predictive: a tile crossing the trigger schedules a
@@ -738,7 +757,16 @@ class BotEngine:
                 # retry helper templates handle the static between-song screens.
                 floor_live = now - last_cross < FLOOR_RECENT
                 for i in range(lanes):
-                    if press_occ[i] and not down[i] and v > 0 and floor_live:
+                    # fire the floor when a tile sits in the press zone AND the
+                    # board is genuinely live: either a tile crossed the line
+                    # recently (floor_live, the original gate) OR a leading edge
+                    # is falling THIS frame (live_motion — catches the first tile
+                    # before any crossing). Purely additive: live_motion only
+                    # rings true on real downward motion, so no new taps on static
+                    # screens (which the `if not gameplay` gate above already
+                    # skips anyway).
+                    if press_occ[i] and not down[i] and (
+                            live_motion or (v > 0 and floor_live)):
                         press(i, now)
                         arrival[i] = now + lead_s
 
