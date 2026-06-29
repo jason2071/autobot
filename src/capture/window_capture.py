@@ -11,17 +11,13 @@ to absolute screen coords for clicking. Windows only.
 
 from __future__ import annotations
 
+from ctypes import windll
+from typing import Any
+
 import numpy as np
-
-try:
-    import win32gui  # type: ignore
-    import win32ui  # type: ignore
-    import win32con  # type: ignore
-    from ctypes import windll
-
-    _OK = True
-except Exception:  # pragma: no cover - non-Windows
-    _OK = False
+import win32gui  # type: ignore
+import win32ui  # type: ignore
+import win32con  # type: ignore
 
 _PW_RENDERFULLCONTENT = 2
 
@@ -41,19 +37,17 @@ class WindowCapture:
           - "bitblt": fast GDI blit, but reads the WRONG layer for LDPlayer
             (GPU surface) — kept only for non-emulator windows.
         """
-        if not _OK:
-            raise RuntimeError("window capture needs pywin32 (Windows only)")
         self.hwnd = hwnd
         self.method = method
         # cached GDI resources, (re)built only when the window size changes —
         # recreating a DC + bitmap every frame is the bulk of the per-grab cost
-        self._dc = None
-        self._mfc = None
-        self._save = None
-        self._bmp = None
+        self._dc: Any = None
+        self._mfc: Any = None
+        self._save: Any = None
+        self._bmp: Any = None
         self._size = (0, 0)
-        self._cam = None      # dxcam camera (created lazily)
-        self._last = None     # last good dxcam frame (grab() returns None if no
+        self._cam: Any = None      # dxcam camera (created lazily)
+        self._last: Any = None     # last good dxcam frame (grab() returns None if no
                               # new display frame yet — reuse the previous one)
         if method == "dxcam":
             try:
@@ -65,7 +59,7 @@ class WindowCapture:
 
     def origin(self) -> tuple[int, int]:
         """Current (left, top) of the window in absolute screen pixels."""
-        l, t, _r, _b = win32gui.GetWindowRect(self.hwnd)
+        l, t = win32gui.GetWindowRect(self.hwnd)[:2]
         return l, t
 
     def size(self) -> tuple[int, int]:
