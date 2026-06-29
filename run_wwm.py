@@ -45,6 +45,11 @@ def _visualise(eng, last_press, hold=0.18):
     W, H, n = 960, 300, len(KEYS)
     pad, top, bot = 24, 70, 250
     tw = (W - pad * 2) // n
+    cv2.namedWindow("autobot - WWM cue", cv2.WINDOW_AUTOSIZE)
+    try:  # keep the cue above the game so you can watch it while playing
+        cv2.setWindowProperty("autobot - WWM cue", cv2.WND_PROP_TOPMOST, 1)
+    except Exception:
+        pass
     while eng.running:
         img = np.full((H, W, 3), 24, np.uint8)
         now = time.monotonic()

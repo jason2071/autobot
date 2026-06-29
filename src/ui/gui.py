@@ -135,6 +135,14 @@ class App:
         )
         self.mode_seg.pack(side="right")
 
+        # keep the autobot window above the game (handy for the WWM cue)
+        self.on_top = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            head, text="On top", variable=self.on_top, font=self.f_sub,
+            checkbox_width=18, checkbox_height=18, onvalue=True, offvalue=False,
+            command=self._toggle_on_top,
+        ).pack(side="right", padx=(0, 12))
+
         # ── content: one card per mode, swapped in/out ────────────────────
         self.content = ctk.CTkFrame(outer, fg_color="transparent")
         self.content.pack(fill="both", expand=True, pady=(12, 0))
@@ -326,6 +334,9 @@ class App:
         self.subtitle.configure(
             text="Magic Tiles 3 autoplay (touch / emulator)" if mode == "tiles"
             else "Where Winds Meet autoplay (keyboard / PC)")
+
+    def _toggle_on_top(self) -> None:
+        self.root.attributes("-topmost", bool(self.on_top.get()))
 
     def _engine_running(self) -> bool:
         return bool(self.bot and getattr(self.bot, "running", False))
