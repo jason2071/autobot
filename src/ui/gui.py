@@ -186,19 +186,26 @@ class App:
 
         self._refresh_windows()
 
-        # ── INPUT (always background multi-touch, capture via dxcam) ──────
-        # Capture is hard-wired to dxcam (DXGI duplication): ~0.1ms/grab and
-        # pixel-correct. BitBlt grabs the wrong GPU layer for LDPlayer; dxcam
-        # falls back to PrintWindow internally if unavailable.
+        # ── INPUT ─────────────────────────────────────────────────────────
+        # Default: InjectTouchInput (real multi-touch, no focus) + dxcam capture
+        # (~0.1ms/grab) — needs LDPlayer visible/uncovered. Background mode (the
+        # checkbox below) switches to WM-message input + PrintWindow capture,
+        # which work even when the window is covered by other windows.
         inp_row = ctk.CTkFrame(left, fg_color="transparent")
         inp_row.pack(fill="x")
         inp_row.columnconfigure(0, weight=1)
         ctk.CTkLabel(inp_row, text="INPUT", font=self.f_section,
                      text_color=MUTED).grid(row=0, column=0, sticky="w")
 
+        self.bg_mode = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            left, text="Background mode (play while covered)",
+            variable=self.bg_mode, font=self.f_sub, onvalue=True, offvalue=False,
+        ).pack(anchor="w", pady=(6, 0))
         self._muted(
-            left, "background multi-touch — no focus needed, plays while you\n"
-                  "work elsewhere. keep LDPlayer visible / uncovered.",
+            left, "OFF: InjectTouchInput + dxcam — real multi-touch, but keep\n"
+                  "LDPlayer visible / uncovered. ON: WM-message + PrintWindow —\n"
+                  "plays even when covered by other windows (single-point).",
         ).pack(anchor="w", pady=(5, 0))
 
         # ── preview — verify region + lane geometry before tuning ─────────
@@ -551,6 +558,7 @@ class App:
         return {"top": top, "left": left, "width": w, "height": h}
 
     def _build_config(self) -> BotConfig:
+        bg = bool(self.bg_mode.get())  # background mode = cover-proof capture+input
         return BotConfig(
             region=self._parse_region(),
             tiles_hit=self.tiles_hit.get() / 100.0,
@@ -560,7 +568,8 @@ class App:
             tiles_note_colors=list(self.tiles_note_bgrs),
             tiles_helpers=self._helper_templates(),
             target_hwnd=self.target_hwnd,
-            window_method="dxcam",
+            window_method="printwindow" if bg else "dxcam",
+            tiles_input="wm" if bg else "touch",
         )
 
     @staticmethod

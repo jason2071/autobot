@@ -138,6 +138,66 @@ class LDMessageClicker:
         self._send(self.child, WM_LBUTTONUP, 0, _lparam(bx, by))
 
 
+class WMInjector:
+    """Tap injector via WM-message clicks — a drop-in for `touch.TouchInjector`
+    that works even when the target window is COVERED or unfocused, because the
+    clicks are POSTED straight to the render-child HWND, not delivered to
+    whatever is topmost at the screen point (which is what InjectTouchInput does,
+    so that one needs the window visible/uncovered). This is the input half of
+    "background mode" (paired with PrintWindow capture, which is likewise
+    cover-proof).
+
+    Same interface + same SCREEN coordinates as TouchInjector: per call the
+    screen point is converted to render-child-client coords using the window's
+    CURRENT rect, so a moved window still lands right. LIMITATION: one mouse
+    button, so true simultaneous multi-touch (chords) is not possible —
+    overlapping lane holds serialize to the latest point. Fine for
+    one-tap-at-a-time play, weaker than InjectTouchInput on chord-heavy charts.
+    """
+
+    def __init__(self, hwnd, max_contacts: int = 10,
+                 restore_cursor: bool = True) -> None:
+        self._clk = LDMessageClicker(hwnd, post=True)  # PostMessage (async)
+        self._cdx, self._cdy = self._clk.origin        # child offset in parent
+        self._hwnd = hwnd
+        self._down: dict[int, tuple[int, int]] = {}
+
+    def _child(self, x: int, y: int) -> tuple[int, int]:
+        r = wintypes.RECT()
+        _u.GetWindowRect(self._hwnd, ctypes.byref(r))
+        return (int(x) - r.left - self._cdx, int(y) - r.top - self._cdy)
+
+    def down(self, slot: int, x: int, y: int) -> None:
+        cx, cy = self._child(x, y)
+        self._clk._send(self._clk.child, WM_LBUTTONDOWN, MK_LBUTTON, _lparam(cx, cy))
+        self._down[slot] = (cx, cy)
+
+    def move(self, slot: int, x: int, y: int) -> None:
+        if slot in self._down:
+            cx, cy = self._child(x, y)
+            self._clk._send(self._clk.child, WM_MOUSEMOVE, MK_LBUTTON, _lparam(cx, cy))
+            self._down[slot] = (cx, cy)
+
+    def up(self, slot: int) -> None:
+        if slot in self._down:
+            cx, cy = self._down.pop(slot)
+            self._clk._send(self._clk.child, WM_LBUTTONUP, 0, _lparam(cx, cy))
+
+    def tap(self, slot: int, x: int, y: int, hold: float = 0.0) -> None:
+        import time
+        self.down(slot, x, y)
+        if hold:
+            time.sleep(hold)
+        self.up(slot)
+
+    def up_all(self) -> None:
+        for s in list(self._down):
+            self.up(s)
+
+    def close(self) -> None:
+        self.up_all()
+
+
 if __name__ == "__main__":  # quick self-test: find LD render child + its offset
     import sys
     _u.FindWindowW.restype = wintypes.HWND

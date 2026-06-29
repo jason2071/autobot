@@ -193,6 +193,32 @@ ported from) live at the repo root.
   in `_run_tiles` (multi-hold / chords). The old mouse (pyautogui) and keyboard
   (pynput) backends were removed; pynput is still used only for the Esc
   emergency-stop listener.
+- **dxcam grabs the SCREEN RECT, not the window — so a COVERED / moved / off-
+  monitor window gives WRONG pixels** (it captures whatever is on top at that
+  rect). This bit hard: a "the bot misses everything / score 0" was misdiagnosed
+  as a gameplay bug when dxcam was actually capturing *another window* (a code
+  editor) over the covered emulator, and the taps were landing on it too. A
+  `printwindow` grab of the SAME HWND showed the real game — **printwindow asks
+  the window to render itself, so it is cover- and monitor-proof** (and the
+  window can sit on a secondary / negative-coordinate monitor). When a run looks
+  like total failure, FIRST grab via printwindow to rule out a capture-target
+  mismatch before touching detection/timing.
+- **Background mode = play while the game is COVERED by other windows**
+  (`BotConfig.tiles_input="wm"` + `window_method="printwindow"`; GUI checkbox
+  "Background mode"). Capture via PrintWindow (cover-proof) + input via
+  `ld_click.WMInjector` — WM-message clicks POSTED to the render-child HWND, not
+  delivered to the topmost window at the screen point (which is why default
+  InjectTouchInput needs the window uncovered). Verified: with LDPlayer pushed to
+  the z-bottom it still captures gameplay and scores (PERFECT combos). Trade-off:
+  WM is a single mouse button → no true simultaneous multi-touch, so survival is
+  lower than InjectTouchInput on chord-heavy charts. Default stays touch+dxcam.
+- **The target window MOVES and the desktop is multi-monitor — never hardcode the
+  window origin.** Read it live every loop (`win.origin()` → GetWindowRect);
+  `_run_tiles` already refreshes `ox, oy` so touches follow a dragged window. (Bit
+  me in a throwaway test harness: a hardcoded origin captured + tapped the wrong
+  screen spot after the window had moved; the live origin is the only safe source.
+  Note negative-x monitors exist — an ultrawide primary at (0,0) with a second
+  display at x=-1920 — so screen coords can be negative.)
 - **Why the cursor stays put** (`_CursorGuard` in `src/touch.py`): Windows
   promotes the *primary* touch pointer to synthetic mouse input, so injected
   touch would otherwise jerk the real cursor to each lane (and could click

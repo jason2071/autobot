@@ -170,9 +170,20 @@ class BotConfig:
     # visible; "printwindow" (slower) is immune to other apps overlapping it.
     target_hwnd: int | None = None
     window_method: str = "dxcam"  # DXGI duplication: ~0.1ms/grab & pixel-correct
-                                  # (low latency = keeps up as the song speeds up).
-                                  # "printwindow" (~20ms) is the fallback; bitblt
-                                  # grabs the wrong GPU layer for LDPlayer.
+                                  # (low latency = keeps up as the song speeds up)
+                                  # but grabs the SCREEN RECT, so it captures the
+                                  # WRONG content when the window is covered/off
+                                  # the visible monitor. "printwindow" (~20ms)
+                                  # asks the window to render itself → cover- and
+                                  # monitor-proof; bitblt grabs the wrong GPU
+                                  # layer for LDPlayer.
+    # input backend: "touch" = InjectTouchInput (real multi-touch, no focus, but
+    # hits the TOPMOST window at the point so it needs the window uncovered);
+    # "wm" = WM-message clicks posted to the window HWND (cover-proof, no cursor,
+    # single-point so chords are limited). "wm" + window_method="printwindow" =
+    # BACKGROUND MODE: play while the game is covered by other windows. Requires
+    # target_hwnd. (see src/input/ld_click.py WMInjector)
+    tiles_input: str = "touch"
     # helper templates clicked on sight (e.g. retry / start buttons between songs)
     tiles_helpers: list[str] = field(default_factory=list)
     # 0.68: the score-screen RETRY (↻) button renders at a slightly different
@@ -409,9 +420,15 @@ class BotEngine:
             tx = [int(mon["left"] + cx) for cx in centers]
             locked = True
 
-        # --- per-lane actuator: background multi-touch (one finger per lane) ---
-        from ..input.touch import TouchInjector
-        touch = TouchInjector(max_contacts=max(lanes + 2, 10))
+        # --- per-lane actuator: InjectTouchInput (multi-touch, needs the window
+        # uncovered) or WM-message clicks (cover-proof "background mode", single
+        # point). WM requires a target window to post to.
+        if cfg.tiles_input == "wm" and cfg.target_hwnd:
+            from ..input.ld_click import WMInjector
+            touch = WMInjector(cfg.target_hwnd, max_contacts=max(lanes + 2, 10))
+        else:
+            from ..input.touch import TouchInjector
+            touch = TouchInjector(max_contacts=max(lanes + 2, 10))
 
         down = [False] * lanes          # which lanes are currently held
         held_since = [0.0] * lanes
