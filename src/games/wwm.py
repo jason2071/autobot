@@ -168,6 +168,10 @@ class WWMEngine:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
     def start(self) -> None:
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)

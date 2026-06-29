@@ -10,6 +10,7 @@ import numpy as np
 import pyautogui
 
 from ..core.bot import BotConfig, BotEngine
+from ..games.wwm import WWMConfig, WWMEngine
 from ..capture.screen import ScreenCapture
 from ..capture import window_picker
 
@@ -106,7 +107,7 @@ class App:
 
     # --- layout ---------------------------------------------------------------
     def _build(self) -> None:
-        self.root.geometry("720x420")
+        self.root.geometry("720x460")
 
         outer = ctk.CTkFrame(self.root, fg_color="transparent")
         outer.pack(padx=16, pady=14, fill="both", expand=True)
@@ -119,32 +120,47 @@ class App:
         htext.pack(side="left", padx=(8, 0))
         ctk.CTkLabel(htext, text="autobot", font=self.f_title,
                      text_color=TEXT).pack(anchor="w")
-        ctk.CTkLabel(htext, text="Magic Tiles 3 autoplay",
-                     font=self.f_sub, text_color=MUTED).pack(anchor="w")
+        self.subtitle = ctk.CTkLabel(htext, text="Magic Tiles 3 autoplay",
+                                     font=self.f_sub, text_color=MUTED)
+        self.subtitle.pack(anchor="w")
 
-        # ── settings card — two-column layout, no scroll ──────────────────
-        card = ctk.CTkFrame(outer, fg_color=CARD, corner_radius=16)
-        card.pack(fill="both", expand=True, pady=(12, 0))
-        # col 0 = left, col 1 = thin separator, col 2 = right
-        card.columnconfigure(0, weight=1, uniform="col")
-        card.columnconfigure(1, weight=0)
-        card.columnconfigure(2, weight=1, uniform="col")
-        card.rowconfigure(0, weight=1)
+        # game mode switch — Magic Tiles (touch, emulator) vs Where Winds Meet
+        # (keyboard, PC). Swaps the card below.
+        self._mode_labels = {"Magic Tiles 3": "tiles", "Where Winds Meet": "wwm"}
+        self.mode_seg = ctk.CTkSegmentedButton(
+            head, values=list(self._mode_labels), command=self._set_mode,
+            font=self.f_sub, fg_color=FIELD, selected_color=ACCENT,
+            selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
+            unselected_hover_color="#343846",
+        )
+        self.mode_seg.pack(side="right")
 
-        left = ctk.CTkFrame(card, fg_color="transparent")
-        left.grid(row=0, column=0, sticky="nsew", padx=(16, 10), pady=12)
-
-        ctk.CTkFrame(card, fg_color=FIELD, width=1,
-                     corner_radius=0).grid(row=0, column=1, sticky="ns", pady=8)
-
-        right = ctk.CTkFrame(card, fg_color="transparent")
-        right.grid(row=0, column=2, sticky="nsew", padx=(10, 16), pady=12)
-
-        # tiles is the only mode — build both columns (Start/status live at the
-        # bottom of the right column so the left column growing in keyboard mode
-        # never squashes the Start button).
+        # ── content: one card per mode, swapped in/out ────────────────────
+        self.content = ctk.CTkFrame(outer, fg_color="transparent")
+        self.content.pack(fill="both", expand=True, pady=(12, 0))
         self.panels: dict[str, ctk.CTkFrame] = {}
+
+        # Magic Tiles card — two columns, no scroll
+        self.tiles_card = ctk.CTkFrame(self.content, fg_color=CARD, corner_radius=16)
+        self.tiles_card.columnconfigure(0, weight=1, uniform="col")
+        self.tiles_card.columnconfigure(1, weight=0)
+        self.tiles_card.columnconfigure(2, weight=1, uniform="col")
+        self.tiles_card.rowconfigure(0, weight=1)
+        left = ctk.CTkFrame(self.tiles_card, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="nsew", padx=(16, 10), pady=12)
+        ctk.CTkFrame(self.tiles_card, fg_color=FIELD, width=1,
+                     corner_radius=0).grid(row=0, column=1, sticky="ns", pady=8)
+        right = ctk.CTkFrame(self.tiles_card, fg_color="transparent")
+        right.grid(row=0, column=2, sticky="nsew", padx=(10, 16), pady=12)
         self._build_tiles_panel(left, right)
+
+        # Where Winds Meet card
+        self.wwm_card = ctk.CTkFrame(self.content, fg_color=CARD, corner_radius=16)
+        self._build_wwm_panel(self.wwm_card)
+
+        self.mode = "tiles"
+        self.mode_seg.set("Magic Tiles 3")
+        self._set_mode("Magic Tiles 3")
 
     # --- detection panel (two columns: left = target+input+preview, right = sliders+color+start) ---
     def _build_tiles_panel(self, left, right) -> None:
@@ -296,6 +312,155 @@ class App:
         self.status = tk.StringVar(value="Ready")
         ctk.CTkLabel(status_row, textvariable=self.status, font=self.f_sub,
                      text_color=MUTED).pack(side="left", padx=(4, 0))
+
+    # --- mode switching -------------------------------------------------------
+    def _set_mode(self, label: str) -> None:
+        mode = self._mode_labels.get(label, "tiles")
+        if self._engine_running():
+            self._stop_engine()
+        self.mode = mode
+        self.tiles_card.pack_forget()
+        self.wwm_card.pack_forget()
+        (self.tiles_card if mode == "tiles" else self.wwm_card).pack(
+            fill="both", expand=True)
+        self.subtitle.configure(
+            text="Magic Tiles 3 autoplay (touch / emulator)" if mode == "tiles"
+            else "Where Winds Meet autoplay (keyboard / PC)")
+
+    def _engine_running(self) -> bool:
+        return bool(self.bot and getattr(self.bot, "running", False))
+
+    def _reset_buttons(self) -> None:
+        for btn in (getattr(self, "toggle_btn", None), getattr(self, "wwm_btn", None)):
+            if btn is not None:
+                btn.configure(text="▶   Start", fg_color=GREEN,
+                              hover_color=GREEN_HOVER)
+
+    def _stop_engine(self) -> None:
+        if self.bot:
+            self.bot.stop()
+        self.bot = None
+        self._reset_buttons()
+
+    # --- Where Winds Meet panel ----------------------------------------------
+    def _build_wwm_panel(self, card) -> None:
+        wrap = ctk.CTkFrame(card, fg_color="transparent")
+        wrap.pack(fill="both", expand=True, padx=18, pady=14)
+
+        hdr = ctk.CTkFrame(wrap, fg_color="transparent")
+        hdr.pack(fill="x")
+        hdr.columnconfigure(0, weight=1)
+        ctk.CTkLabel(hdr, text="TARGET WINDOW", font=self.f_section,
+                     text_color=MUTED).grid(row=0, column=0, sticky="w")
+        ctk.CTkButton(
+            hdr, text="↺  Refresh", font=self.f_sub, fg_color=FIELD,
+            hover_color="#343846", text_color=TEXT, corner_radius=8,
+            height=24, width=80, command=self._wwm_refresh,
+        ).grid(row=0, column=1, sticky="e")
+
+        self.wwm_hwnd: int | None = None
+        self.wwm_window_choice = tk.StringVar(value="(pick the game window)")
+        self.wwm_menu = ctk.CTkOptionMenu(
+            wrap, variable=self.wwm_window_choice,
+            values=["(pick the game window)"], font=self.f_label, fg_color=FIELD,
+            button_color=FIELD, button_hover_color="#343846", corner_radius=10,
+            height=34, command=self._wwm_pick,
+        )
+        self.wwm_menu.pack(fill="x", pady=(4, 10))
+        self._muted(
+            wrap, "Keys S D F J K L · dxcam capture. Keep the game topmost,\n"
+                  "uncovered AND focused — keypresses go to the foreground window.",
+        ).pack(anchor="w", pady=(0, 10))
+
+        sg = ctk.CTkFrame(wrap, fg_color="transparent")
+        sg.pack(fill="x", pady=(4, 0))
+        sg.columnconfigure((0, 1), weight=1, uniform="sl")
+        c0 = ctk.CTkFrame(sg, fg_color="transparent")
+        c0.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        c1 = ctk.CTkFrame(sg, fg_color="transparent")
+        c1.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        self.wwm_offset = tk.IntVar(value=0)
+        self._slider_group(c0, "PRESS OFFSET (px)", self.wwm_offset,
+                           -40, 120, 160, "wwm_offset_label", 0)
+        self.wwm_band = tk.IntVar(value=28)
+        self._slider_group(c1, "HIT BAND (px)", self.wwm_band,
+                           16, 48, 32, "wwm_band_label", 28)
+        self._muted(
+            wrap, "PRESS OFFSET: raise if it taps late, lower if it taps early.",
+        ).pack(anchor="w", pady=(8, 0))
+
+        self.wwm_btn = ctk.CTkButton(
+            wrap, text="▶   Start", font=self.f_btn, fg_color=GREEN,
+            hover_color=GREEN_HOVER, text_color="#ffffff", corner_radius=12,
+            height=48, command=self._wwm_toggle,
+        )
+        self.wwm_btn.pack(fill="x", pady=(18, 0))
+        srow = ctk.CTkFrame(wrap, fg_color="transparent")
+        srow.pack(fill="x", pady=(8, 0))
+        self.wwm_dot = ctk.CTkLabel(srow, text="●", font=ctk.CTkFont(size=13),
+                                    text_color=MUTED, width=14)
+        self.wwm_dot.pack(side="left")
+        self.wwm_status = tk.StringVar(value="Ready")
+        ctk.CTkLabel(srow, textvariable=self.wwm_status, font=self.f_sub,
+                     text_color=MUTED).pack(side="left", padx=(4, 0))
+
+        self._wwm_refresh()
+
+    def _wwm_refresh(self) -> None:
+        self.windows = window_picker.list_windows()
+        titles = [w.title for w in self.windows if w.hwnd]
+        self.wwm_menu.configure(values=titles or ["(no windows)"])
+        auto = next((t for t in titles if "where winds meet" in t.lower()), None)
+        pick = auto or (self.wwm_window_choice.get() if
+                        self.wwm_window_choice.get() in titles else
+                        (titles[0] if titles else None))
+        if pick:
+            self.wwm_window_choice.set(pick)
+            self._wwm_pick(pick)
+
+    def _wwm_pick(self, choice: str) -> None:
+        win = next((w for w in self.windows if w.title == choice), None)
+        self.wwm_hwnd = win.hwnd if win else None
+
+    def _wwm_toggle(self) -> None:
+        if self._engine_running():
+            self._stop_engine()
+            return
+        if self._pending_id is not None:
+            self._cancel_pending()
+            self._wwm_set_status("Ready")
+            return
+        if not self.wwm_hwnd:
+            self._wwm_set_status("error: pick the game window")
+            return
+        cfg = WWMConfig(
+            target_hwnd=self.wwm_hwnd, window_method="dxcam",
+            hit_band=self.wwm_band.get(), press_offset_px=self.wwm_offset.get())
+        self._wwm_countdown(3, cfg)
+
+    def _wwm_countdown(self, secs: int, cfg: WWMConfig) -> None:
+        if secs > 0:
+            self.wwm_btn.configure(text="✕   Cancel", fg_color=AMBER,
+                                   hover_color=AMBER)
+            self._wwm_set_status(f"starting in {secs}… (focus the game!)")
+            self._pending_id = self.root.after(
+                1000, lambda: self._wwm_countdown(secs - 1, cfg))
+            return
+        self._pending_id = None
+        window_picker.focus_window(self.wwm_window_choice.get())
+        self.bot = WWMEngine(cfg, on_status=self._wwm_set_status)
+        self.bot.start()
+        self.wwm_btn.configure(text="■   Stop", fg_color=RED,
+                               hover_color=RED_HOVER)
+
+    def _wwm_set_status(self, msg: str) -> None:
+        def apply() -> None:
+            self.wwm_status.set(msg)
+            self.wwm_dot.configure(text_color=self._dot_color(msg))
+            if msg in ("stopped", "Ready") or msg.startswith("error"):
+                self.wwm_btn.configure(text="▶   Start", fg_color=GREEN,
+                                       hover_color=GREEN_HOVER)
+        self.root.after(0, apply)
 
     def _pick_note_color(self) -> None:
         res = self._eyedropper()
@@ -630,8 +795,7 @@ class App:
         if self._pending_id is not None:
             self.root.after_cancel(self._pending_id)
             self._pending_id = None
-        self.toggle_btn.configure(text="▶   Start", fg_color=GREEN,
-                                  hover_color=GREEN_HOVER)
+        self._reset_buttons()
 
     def _countdown(self, secs: int, config: BotConfig) -> None:
         if secs > 0:
@@ -650,10 +814,7 @@ class App:
                                   hover_color=RED_HOVER)
 
     def _stop_bot(self) -> None:
-        if self.bot:
-            self.bot.stop()
-        self.toggle_btn.configure(text="▶   Start", fg_color=GREEN,
-                                  hover_color=GREEN_HOVER)
+        self._stop_engine()
 
     def _dot_color(self, msg: str) -> str:
         m = msg.lower()

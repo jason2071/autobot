@@ -68,7 +68,7 @@ def main() -> int:
     eng = WWMEngine(cfg, on_status=lambda m: print(f"[wwm] {m}"))
     eng.start()
     try:
-        while eng._thread is not None and eng._thread.is_alive():
+        while eng.running:
             time.sleep(0.2)
     except KeyboardInterrupt:
         pass
