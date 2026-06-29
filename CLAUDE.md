@@ -4,10 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`autobot` is a desktop GUI bot that **autoplays Magic Tiles 3** (and similar
-piano-tile games) running in an Android emulator (LDPlayer) on Windows. It is
-**tiles-mode only** — older template/color/pixel auto-clicker modes were removed.
-Python + customtkinter GUI, OpenCV/numpy detection, pyautogui/pynput input.
+`autobot` is a **general OpenCV vision-bot foundation** for autoplaying
+rhythm/tile games by *seeing the screen* (no adb, no memory reads) — meant to be
+reused across games, including PC titles. Two integrations exist today:
+
+- **Magic Tiles 3** (the original; an Android game in the LDPlayer emulator) —
+  predictive tile tracking + touch / WM-message input. See `src/core/`.
+- **Where Winds Meet** (a PC game; the instrument minigame) — a 6-lane keyboard
+  rhythm autoplayer. See `src/games/wwm.py` + `run_wwm.py`.
+
+Python + customtkinter GUI (Magic Tiles), OpenCV/numpy detection, pynput/Win32
+input. The predictive/segmentation core in `src/core/predict.py` is shared.
 
 ## Commands
 
@@ -24,8 +31,11 @@ make clean     # remove .venv + __pycache__
 
 Direct invocation (works in PowerShell too):
 ```
-.venv/Scripts/python.exe main.py          # run GUI
-.venv/Scripts/python.exe -m tests.smoke    # run tests
+.venv/Scripts/python.exe main.py             # run Magic Tiles GUI
+.venv/Scripts/python.exe run_wwm.py          # run Where Winds Meet autoplayer
+.venv/Scripts/python.exe run_wwm.py --list   # list windows to target
+.venv/Scripts/python.exe -m tests.smoke      # run tests
+.venv/Scripts/python.exe -m tests.wwm_replay # WWM offline sanity gate
 ```
 
 **Tests:** `tests/smoke.py` is a hand-rolled runner (a `main()` that calls each
@@ -54,13 +64,44 @@ tile will reach the hit line, instead of reacting once it is already there.
 - `capture/` — `window_capture.py` (WindowCapture: dxcam / PrintWindow),
   `screen.py` (ScreenCapture: mss), `window_picker.py`
 - `detect/` — `detector.py` (template + color/pixel match)
-- `input/` — `touch.py` (TouchInjector — primary), `ld_click.py` (LDPlayer
-  message-click fallback)
+- `input/` — `touch.py` (TouchInjector — Magic Tiles primary), `ld_click.py`
+  (LDPlayer message-click fallback), `key.py` (KeyInjector — keyboard, for WWM)
+- `games/` — `wwm.py` (Where Winds Meet integration: geometry + note mask +
+  reactive engine)
 - `toolkit/` — `ezcbot.py` (reusable EzCBot port; re-exports the modules above)
 - `ui/` — `gui.py` (customtkinter App)
 
-`main.py` (entry) and `reference/EzCBot.cs` (the original C# toolkit this was
-ported from) live at the repo root.
+`main.py` (Magic Tiles entry), `run_wwm.py` (Where Winds Meet entry) and
+`reference/EzCBot.cs` (the original C# toolkit this was ported from) live at the
+repo root.
+
+### Where Winds Meet (`src/games/wwm.py`)
+
+A 6-lane keyboard rhythm minigame: bright translucent note-circles fall down six
+fixed lanes (keys **S D F J K L**) onto a target-circle row; press the lane's key
+as a note lands, holding for the long "capsule" notes. Capture is dxcam (the game
+is kept topmost/uncovered, so fast low-latency capture is fine), input is the
+keyboard via `src/input/key.py` `KeyInjector` (Win32 `SendInput` scancodes — each
+key independent, so chords are free, and latency is a few ms).
+
+- **Geometry is resolution- and aspect-independent.** Measured on real captures
+  at 1920x1080 *and* 3440x1440, the rhythm UI scales with screen HEIGHT and is
+  horizontally CENTERED: each lane sits at `x = W/2 + k*H` (the `LANE_K` constants
+  are identical across both resolutions to <0.5%), the target row at `y = 0.865*H`.
+  So one model drives 16:9 and 21:9. `calibrate()` refines it from the actual
+  frame (the S D F J K L letter glyphs) and falls back to the model.
+- **Play is purely REACTIVE** (unlike Magic Tiles' predictive schedule): segment
+  each lane on a bright-note mask (`V > note_v_min & S < note_s_max`), and press a
+  lane the moment a segment reaches the target band (`hit_band` around `hit_y`),
+  held until the band clears. A measured sweep showed the predictive schedule
+  added zero coverage here — these notes fall slow and steady (~520 px/s) onto a
+  target with generous tolerance, so reacting on the band lands "Perfect". The one
+  live latency knob is `press_offset_px` (shift the band up to press earlier).
+- `release_frames` debounces the band so a one/two-frame mask flicker (the
+  flower-icon hole in a note) doesn't release+re-press a single note as a
+  double-tap. `tests/wwm_replay.py` is the offline sanity gate (presses sane +
+  spread across all lanes + low duplicate rate); per-note timing is verified
+  visually (annotated frames) and live.
 
 - `main.py` → `src/ui/gui.py` `App` (customtkinter, fixed-size two-column window).
   The GUI builds a `BotConfig` in `_build_config`, validates, then runs a 3s
