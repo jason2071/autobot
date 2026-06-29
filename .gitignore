@@ -48,3 +48,9 @@ templates/*.mp4
 # OS
 .DS_Store
 Thumbs.db
+
+# Game capture assets (WWM analysis)
+videos/
+images/
+scratchpad/
+*.mp4

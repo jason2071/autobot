@@ -4,10 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`autobot` is a desktop GUI bot that **autoplays Magic Tiles 3** (and similar
-piano-tile games) running in an Android emulator (LDPlayer) on Windows. It is
-**tiles-mode only** — older template/color/pixel auto-clicker modes were removed.
-Python + customtkinter GUI, OpenCV/numpy detection, pyautogui/pynput input.
+`autobot` is a **general OpenCV vision-bot foundation** for autoplaying
+rhythm/tile games by *seeing the screen* (no adb, no memory reads) — meant to be
+reused across games, including PC titles. Two integrations exist today:
+
+- **Magic Tiles 3** (the original; an Android game in the LDPlayer emulator) —
+  predictive tile tracking + touch / WM-message input. See `src/core/`.
+- **Where Winds Meet** (a PC game; the instrument minigame) — a 6-lane keyboard
+  rhythm autoplayer. See `src/games/wwm.py` + `run_wwm.py`.
+
+Python + customtkinter GUI (Magic Tiles), OpenCV/numpy detection, pynput/Win32
+input. The predictive/segmentation core in `src/core/predict.py` is shared.
 
 ## Commands
 
@@ -24,8 +31,11 @@ make clean     # remove .venv + __pycache__
 
 Direct invocation (works in PowerShell too):
 ```
-.venv/Scripts/python.exe main.py          # run GUI
-.venv/Scripts/python.exe -m tests.smoke    # run tests
+.venv/Scripts/python.exe main.py             # run Magic Tiles GUI
+.venv/Scripts/python.exe run_wwm.py          # run Where Winds Meet autoplayer
+.venv/Scripts/python.exe run_wwm.py --list   # list windows to target
+.venv/Scripts/python.exe -m tests.smoke      # run tests
+.venv/Scripts/python.exe -m tests.wwm_replay # WWM offline sanity gate
 ```
 
 **Tests:** `tests/smoke.py` is a hand-rolled runner (a `main()` that calls each
@@ -54,13 +64,65 @@ tile will reach the hit line, instead of reacting once it is already there.
 - `capture/` — `window_capture.py` (WindowCapture: dxcam / PrintWindow),
   `screen.py` (ScreenCapture: mss), `window_picker.py`
 - `detect/` — `detector.py` (template + color/pixel match)
-- `input/` — `touch.py` (TouchInjector — primary), `ld_click.py` (LDPlayer
-  message-click fallback)
+- `input/` — `touch.py` (TouchInjector — Magic Tiles primary), `ld_click.py`
+  (LDPlayer message-click fallback), `key.py` (KeyInjector — keyboard, for WWM)
+- `games/` — `wwm.py` (Where Winds Meet integration: geometry + note mask +
+  reactive engine)
 - `toolkit/` — `ezcbot.py` (reusable EzCBot port; re-exports the modules above)
 - `ui/` — `gui.py` (customtkinter App)
 
-`main.py` (entry) and `reference/EzCBot.cs` (the original C# toolkit this was
-ported from) live at the repo root.
+`main.py` (Magic Tiles entry), `run_wwm.py` (Where Winds Meet entry) and
+`reference/EzCBot.cs` (the original C# toolkit this was ported from) live at the
+repo root.
+
+### Where Winds Meet (`src/games/wwm.py`)
+
+A 6-lane keyboard rhythm minigame: bright translucent note-circles fall down six
+fixed lanes (keys **S D F J K L**) onto a target-circle row; press the lane's key
+as a note lands, holding for the long "capsule" notes.
+
+- **VISION-ONLY by default, on purpose (`WWMConfig.dry_run=True`).** Where Winds
+  Meet runs ELEVATED (verified: its process is admin) — i.e. it ships anti-cheat.
+  Two consequences: (1) Windows UIPI silently DROPS injected input from our
+  non-elevated process, so keys never arrive (capture + focus still work — this
+  is why a live run looked like "misses everywhere" while scoring 0); (2) even if
+  we elevated to get past UIPI, `SendInput` keys carry an OS "injected" flag a
+  kernel anti-cheat can read, so auto-playing risks an account BAN. So the engine
+  DEFAULTS to dry_run: it captures + detects + decides and reports the lane it
+  WOULD hit via the `on_event` callback (a passive on-screen visualiser lights
+  it), but constructs no `KeyInjector` and sends nothing. Screen capture is
+  passive and low-risk; injected input is not. `--actuate` / `dry_run=False`
+  exists only for an OFFLINE / non-protected target — never point it at an
+  anti-cheat game. `src/input/key.py` `KeyInjector` (Win32 `SendInput` scancodes,
+  true simultaneous keys) is the actuation backend used only in that mode.
+- **Capture is dxcam, multi-output.** `WindowCapture` picks the dxcam OUTPUT
+  showing the target window (matched to its monitor via `MonitorFromWindow`) and
+  grabs in that output's local coords — a window on a SECOND monitor works
+  (plain `dxcam.create()` only sees the primary and raised "Invalid Region").
+  PrintWindow returns BLACK for this game's DirectX surface, so dxcam is the only
+  capture path. The engine segments only a thin STRIP around the target row, not
+  the whole frame (~6x faster: 19ms→3ms), so a falling note can't skip the band
+  between frames. `window_picker.focus_hwnd` force-foregrounds via
+  AttachThreadInput (a plain SetForegroundWindow from the background is refused);
+  `input_blocked_by_uipi(hwnd)` flags the elevated-game/non-elevated-bot case.
+- **Geometry is resolution- and aspect-independent.** Measured on real captures
+  at 1920x1080 *and* 3440x1440, the rhythm UI scales with screen HEIGHT and is
+  horizontally CENTERED: each lane sits at `x = W/2 + k*H` (the `LANE_K` constants
+  are identical across both resolutions to <0.5%), the target row at `y = 0.865*H`.
+  So one model drives 16:9 and 21:9. `calibrate()` refines it from the actual
+  frame (the S D F J K L letter glyphs) and falls back to the model.
+- **Play is purely REACTIVE** (unlike Magic Tiles' predictive schedule): segment
+  each lane on a bright-note mask (`V > note_v_min & S < note_s_max`), and press a
+  lane the moment a segment reaches the target band (`hit_band` around `hit_y`),
+  held until the band clears. A measured sweep showed the predictive schedule
+  added zero coverage here — these notes fall slow and steady (~520 px/s) onto a
+  target with generous tolerance, so reacting on the band lands "Perfect". The one
+  live latency knob is `press_offset_px` (shift the band up to press earlier).
+- `release_frames` debounces the band so a one/two-frame mask flicker (the
+  flower-icon hole in a note) doesn't release+re-press a single note as a
+  double-tap. `tests/wwm_replay.py` is the offline sanity gate (presses sane +
+  spread across all lanes + low duplicate rate); per-note timing is verified
+  visually (annotated frames) and live.
 
 - `main.py` → `src/ui/gui.py` `App` (customtkinter, fixed-size two-column window).
   The GUI builds a `BotConfig` in `_build_config`, validates, then runs a 3s

@@ -90,6 +90,44 @@ def _win_windows() -> list[Window]:
     return out
 
 
+def _process_elevated(pid: int) -> bool | None:
+    """Is the process `pid` running elevated (admin)? None if it can't be told."""
+    try:
+        import win32api  # type: ignore
+        import win32con  # type: ignore
+        import win32security  # type: ignore
+
+        h = win32api.OpenProcess(
+            win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        tok = win32security.OpenProcessToken(h, win32con.TOKEN_QUERY)
+        return bool(win32security.GetTokenInformation(
+            tok, win32security.TokenElevation))
+    except Exception:
+        return None
+
+
+def we_are_elevated() -> bool:
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def input_blocked_by_uipi(hwnd: int) -> bool:
+    """True when the target window runs elevated but we do NOT — Windows UIPI then
+    silently drops our injected keyboard/mouse input even though focus + capture
+    still work. The fix is to run this bot as Administrator."""
+    if not (sys.platform.startswith("win") and _HAS_WIN32):
+        return False
+    try:
+        import win32process  # type: ignore
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        return _process_elevated(pid) is True and not we_are_elevated()
+    except Exception:
+        return False
+
+
 def list_windows() -> list[Window]:
     """Return visible windows, topmost first. Empty if unsupported."""
     if sys.platform == "darwin" and _HAS_QUARTZ:
@@ -99,12 +137,48 @@ def list_windows() -> list[Window]:
     return []
 
 
+def focus_hwnd(hwnd: int) -> bool:
+    """Force `hwnd` to the foreground, beating Windows' foreground lock.
+
+    A plain SetForegroundWindow from a background process is usually refused
+    (only the process that owns the current foreground / last input may set it),
+    so we briefly AttachThreadInput to the current-foreground and target threads
+    — which makes Windows treat the call as coming from the foreground — then
+    detach. Without this the game never gets focus and injected keys land on
+    whatever window does (e.g. the editor)."""
+    if not (sys.platform.startswith("win") and _HAS_WIN32):
+        return False
+    import win32con  # type: ignore
+    import win32process  # type: ignore
+    import win32api  # type: ignore
+    import ctypes
+
+    if win32gui.IsIconic(hwnd):
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    if win32gui.GetForegroundWindow() == hwnd:
+        return True
+    cur = win32api.GetCurrentThreadId()
+    fg = win32gui.GetForegroundWindow()
+    other = win32process.GetWindowThreadProcessId(fg)[0] if fg else 0
+    tgt = win32process.GetWindowThreadProcessId(hwnd)[0]
+    attached = [t for t in {other, tgt} if t and t != cur]
+    for t in attached:
+        ctypes.windll.user32.AttachThreadInput(cur, t, True)
+    try:
+        win32gui.BringWindowToTop(hwnd)
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
+    finally:
+        for t in attached:
+            ctypes.windll.user32.AttachThreadInput(cur, t, False)
+    return win32gui.GetForegroundWindow() == hwnd
+
+
 def focus_window(title: str) -> bool:
     """Bring the window with this exact title to the foreground. Best effort;
     returns True if it found and raised the window."""
     if sys.platform.startswith("win") and _HAS_WIN32:
-        import win32con  # type: ignore
-
         target = []
 
         def cb(hwnd, _):
@@ -114,16 +188,7 @@ def focus_window(title: str) -> bool:
         win32gui.EnumWindows(cb, None)
         if not target:
             return False
-        hwnd = target[0]
-        try:
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            win32gui.SetForegroundWindow(hwnd)
-        except Exception:
-            try:
-                win32gui.BringWindowToTop(hwnd)
-            except Exception:
-                return False
-        return True
+        return focus_hwnd(target[0])
 
     if sys.platform == "darwin":
         # title is "Owner — Name"; activate the owning app via AppleScript.
