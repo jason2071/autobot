@@ -10,7 +10,7 @@ import numpy as np
 import pyautogui
 
 from ..core.bot import BotConfig, BotEngine
-from ..games.wwm import WWMConfig, WWMEngine
+from ..games.wwm import WWMConfig, WWMEngine, DEFAULT_KEYS as DEFAULT_WWM_KEYS
 from ..capture.screen import ScreenCapture
 from ..capture import window_picker
 
@@ -368,9 +368,22 @@ class App:
         )
         self.wwm_menu.pack(fill="x", pady=(4, 10))
         self._muted(
-            wrap, "Keys S D F J K L · dxcam capture. Keep the game topmost,\n"
-                  "uncovered AND focused — keypresses go to the foreground window.",
-        ).pack(anchor="w", pady=(0, 10))
+            wrap, "Vision-only — WATCHES and lights the lane it would hit, but\n"
+                  "sends NO keys to the game. Injected input is visible to anti-\n"
+                  "cheat (this game runs elevated) → a ban risk, so watch only.",
+        ).pack(anchor="w", pady=(0, 8))
+
+        # live lane indicators — light when the detector would hit that lane
+        lane_row = ctk.CTkFrame(wrap, fg_color="transparent")
+        lane_row.pack(fill="x", pady=(0, 6))
+        self.wwm_lane_dots = []
+        for i, kname in enumerate(DEFAULT_WWM_KEYS):
+            lane_row.columnconfigure(i, weight=1)
+            d = ctk.CTkLabel(lane_row, text=kname.upper(), width=44, height=34,
+                             corner_radius=8, fg_color=FIELD, text_color=MUTED,
+                             font=self.f_value)
+            d.grid(row=0, column=i, padx=3)
+            self.wwm_lane_dots.append(d)
 
         sg = ctk.CTkFrame(wrap, fg_color="transparent")
         sg.pack(fill="x", pady=(4, 0))
@@ -386,11 +399,11 @@ class App:
         self._slider_group(c1, "HIT BAND (px)", self.wwm_band,
                            16, 48, 32, "wwm_band_label", 28)
         self._muted(
-            wrap, "PRESS OFFSET: raise if it taps late, lower if it taps early.",
+            wrap, "HIT BAND = detection window height; PRESS OFFSET shifts it up.",
         ).pack(anchor="w", pady=(8, 0))
 
         self.wwm_btn = ctk.CTkButton(
-            wrap, text="▶   Start", font=self.f_btn, fg_color=GREEN,
+            wrap, text="👁   Watch (no keys sent)", font=self.f_btn, fg_color=GREEN,
             hover_color=GREEN_HOVER, text_color="#ffffff", corner_radius=12,
             height=48, command=self._wwm_toggle,
         )
@@ -433,8 +446,9 @@ class App:
         if not self.wwm_hwnd:
             self._wwm_set_status("error: pick the game window")
             return
+        # vision-only: capture + detect, never send keys (safe for anti-cheat)
         cfg = WWMConfig(
-            target_hwnd=self.wwm_hwnd, window_method="dxcam",
+            target_hwnd=self.wwm_hwnd, window_method="dxcam", dry_run=True,
             hit_band=self.wwm_band.get(), press_offset_px=self.wwm_offset.get())
         self._wwm_countdown(3, cfg)
 
@@ -442,16 +456,26 @@ class App:
         if secs > 0:
             self.wwm_btn.configure(text="✕   Cancel", fg_color=AMBER,
                                    hover_color=AMBER)
-            self._wwm_set_status(f"starting in {secs}… (focus the game!)")
+            self._wwm_set_status(f"watching in {secs}…")
             self._pending_id = self.root.after(
                 1000, lambda: self._wwm_countdown(secs - 1, cfg))
             return
         self._pending_id = None
-        window_picker.focus_window(self.wwm_window_choice.get())
-        self.bot = WWMEngine(cfg, on_status=self._wwm_set_status)
+        # no focus / no keys — capture is passive (dxcam reads the screen)
+        self.bot = WWMEngine(cfg, on_status=self._wwm_set_status,
+                             on_event=self._wwm_on_event)
         self.bot.start()
         self.wwm_btn.configure(text="■   Stop", fg_color=RED,
                                hover_color=RED_HOVER)
+
+    def _wwm_on_event(self, lane: int, kind: str) -> None:
+        def apply() -> None:
+            if 0 <= lane < len(self.wwm_lane_dots):
+                on = kind == "press"
+                self.wwm_lane_dots[lane].configure(
+                    fg_color=GREEN if on else FIELD,
+                    text_color="#10221a" if on else MUTED)
+        self.root.after(0, apply)
 
     def _wwm_set_status(self, msg: str) -> None:
         def apply() -> None:

@@ -79,11 +79,32 @@ repo root.
 
 A 6-lane keyboard rhythm minigame: bright translucent note-circles fall down six
 fixed lanes (keys **S D F J K L**) onto a target-circle row; press the lane's key
-as a note lands, holding for the long "capsule" notes. Capture is dxcam (the game
-is kept topmost/uncovered, so fast low-latency capture is fine), input is the
-keyboard via `src/input/key.py` `KeyInjector` (Win32 `SendInput` scancodes — each
-key independent, so chords are free, and latency is a few ms).
+as a note lands, holding for the long "capsule" notes.
 
+- **VISION-ONLY by default, on purpose (`WWMConfig.dry_run=True`).** Where Winds
+  Meet runs ELEVATED (verified: its process is admin) — i.e. it ships anti-cheat.
+  Two consequences: (1) Windows UIPI silently DROPS injected input from our
+  non-elevated process, so keys never arrive (capture + focus still work — this
+  is why a live run looked like "misses everywhere" while scoring 0); (2) even if
+  we elevated to get past UIPI, `SendInput` keys carry an OS "injected" flag a
+  kernel anti-cheat can read, so auto-playing risks an account BAN. So the engine
+  DEFAULTS to dry_run: it captures + detects + decides and reports the lane it
+  WOULD hit via the `on_event` callback (a passive on-screen visualiser lights
+  it), but constructs no `KeyInjector` and sends nothing. Screen capture is
+  passive and low-risk; injected input is not. `--actuate` / `dry_run=False`
+  exists only for an OFFLINE / non-protected target — never point it at an
+  anti-cheat game. `src/input/key.py` `KeyInjector` (Win32 `SendInput` scancodes,
+  true simultaneous keys) is the actuation backend used only in that mode.
+- **Capture is dxcam, multi-output.** `WindowCapture` picks the dxcam OUTPUT
+  showing the target window (matched to its monitor via `MonitorFromWindow`) and
+  grabs in that output's local coords — a window on a SECOND monitor works
+  (plain `dxcam.create()` only sees the primary and raised "Invalid Region").
+  PrintWindow returns BLACK for this game's DirectX surface, so dxcam is the only
+  capture path. The engine segments only a thin STRIP around the target row, not
+  the whole frame (~6x faster: 19ms→3ms), so a falling note can't skip the band
+  between frames. `window_picker.focus_hwnd` force-foregrounds via
+  AttachThreadInput (a plain SetForegroundWindow from the background is refused);
+  `input_blocked_by_uipi(hwnd)` flags the elevated-game/non-elevated-bot case.
 - **Geometry is resolution- and aspect-independent.** Measured on real captures
   at 1920x1080 *and* 3440x1440, the rhythm UI scales with screen HEIGHT and is
   horizontally CENTERED: each lane sits at `x = W/2 + k*H` (the `LANE_K` constants

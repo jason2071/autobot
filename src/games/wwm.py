@@ -157,14 +157,27 @@ class WWMConfig:
                                         # released+re-pressed as a double-tap)
     poll: float = 0.0
 
+    # SAFETY: dry_run is the DEFAULT. The detector runs (capture + decide) but NO
+    # keys are sent to the game — it only reports which lane it WOULD press via
+    # the on_event callback, for a passive on-screen visualiser. Injected input
+    # (SendInput) carries an OS "injected" flag a kernel anti-cheat can read, so
+    # actuating an online game that ships such protection (Where Winds Meet runs
+    # elevated → it has one) risks an account ban. Leave dry_run on for any
+    # anti-cheat title; only set it False for an offline / non-protected target.
+    dry_run: bool = True
+
 
 class WWMEngine:
     """Threaded autoplayer. `start()` runs the capture→detect→schedule→key loop
     on a daemon thread; `stop()` (or Esc) ends it and releases all keys."""
 
-    def __init__(self, config: WWMConfig, on_status=None) -> None:
+    def __init__(self, config: WWMConfig, on_status=None, on_event=None) -> None:
         self.config = config
         self.on_status = on_status or (lambda _m: None)
+        # on_event(lane:int, kind:str) — 'press'/'release' the bot decided on.
+        # In dry_run this is the ONLY output (no keys are sent); a visualiser
+        # lights the lane. Always fired, so it also tracks a real actuation run.
+        self.on_event = on_event or (lambda _lane, _kind: None)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -188,7 +201,9 @@ class WWMEngine:
         from ..input.key import KeyInjector
 
         win = WindowCapture(cfg.target_hwnd, cfg.window_method)
-        keys = KeyInjector(cfg.keys)
+        # dry_run (default): never construct the key injector, so no keys can
+        # reach the game — purely passive detection. on_event reports decisions.
+        keys = None if cfg.dry_run else KeyInjector(cfg.keys)
         lanes = len(cfg.keys)
 
         down = [False] * lanes
@@ -197,14 +212,18 @@ class WWMEngine:
 
         def press(i, now):
             if not down[i]:
-                keys.down(i)
+                if keys is not None:
+                    keys.down(i)
                 down[i] = True
                 held_since[i] = now
+                self.on_event(i, "press")
 
         def release(i):
             if down[i]:
-                keys.up(i)
+                if keys is not None:
+                    keys.up(i)
                 down[i] = False
+                self.on_event(i, "release")
 
         def release_all():
             for i in range(lanes):
@@ -270,7 +289,8 @@ class WWMEngine:
         # predictive schedule changed coverage by zero. Keyboard latency is a few
         # ms, so reacting on the band is on time; `press_offset_px` shifts the
         # band up for any residual lag.
-        self.on_status("running (WWM/reactive) — Esc to stop")
+        self.on_status("running (WWM/vision-only — no keys sent) — Esc to stop"
+                       if cfg.dry_run else "running (WWM/reactive) — Esc to stop")
         try:
             while not self._stop.is_set():
                 now = time.monotonic()
@@ -317,7 +337,8 @@ class WWMEngine:
                 self._stop.wait(cfg.poll)
         finally:
             release_all()
-            keys.close()
+            if keys is not None:
+                keys.close()
             win.close()
             if listener is not None:
                 listener.stop()
