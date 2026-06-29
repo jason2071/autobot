@@ -144,11 +144,13 @@ class WWMConfig:
     hit_band: int = 28                  # half-height of the press/hit band (px@H
                                         # this is ~half a note circle: a note is
                                         # "on the target" within ±hit_band of it)
-    press_offset_px: int = 40           # shift the band UP to fire EARLIER — the
-                                        # one live timing knob. Raise it if the
-                                        # hit lands late (note already on the
-                                        # target before it fires); lower if early.
-                                        # ~px; at ~520 px/s, 40px ≈ 77ms earlier.
+    press_offset_px: int = 90           # shift the band UP to cue EARLIER — the
+                                        # one live timing knob. Default ~90px ≈
+                                        # 170ms of lead at ~520 px/s, so when the
+                                        # bot is used as a play-along VISUAL CUE
+                                        # the lane lights early enough to react +
+                                        # press in time. Raise for more lead,
+                                        # lower to cue closer to the target.
     min_run: int = 18
     dark_frac: float = 0.42
     merge_gap: int = 18                 # bridge a note's centre-icon hole

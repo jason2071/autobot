@@ -37,23 +37,30 @@ def _find(match: str):
     return None
 
 
-def _visualise(eng, last_press):
-    """Main-thread cv2 loop: draw the six lanes, lit while recently pressed."""
+def _visualise(eng, last_press, hold=0.18):
+    """Main-thread cv2 loop: six big lane tiles that flash when the bot detects a
+    note approaching that lane's target — watch this and press the lit key."""
     import cv2
 
+    W, H, n = 960, 300, len(KEYS)
+    pad, top, bot = 24, 70, 250
+    tw = (W - pad * 2) // n
     while eng.running:
-        img = np.full((200, 720, 3), 28, np.uint8)
+        img = np.full((H, W, 3), 24, np.uint8)
         now = time.monotonic()
         for i, k in enumerate(KEYS):
-            x = 30 + i * 112
-            lit = now - last_press[i] < 0.12
-            col = (90, 200, 90) if lit else (70, 70, 70)
-            cv2.rectangle(img, (x, 60), (x + 92, 150), col, -1 if lit else 2)
-            cv2.putText(img, k, (x + 32, 120), cv2.FONT_HERSHEY_SIMPLEX, 1.1,
-                        (20, 20, 20) if lit else (200, 200, 200), 2)
-        cv2.putText(img, "VISION-ONLY  (no keys sent)  -  q to stop", (30, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1)
-        cv2.imshow("autobot - WWM watcher", img)
+            x = pad + i * tw
+            lit = now - last_press[i] < hold
+            col = (70, 220, 90) if lit else (55, 55, 60)
+            cv2.rectangle(img, (x + 6, top), (x + tw - 6, bot), col,
+                          -1 if lit else 3)
+            tcol = (15, 30, 15) if lit else (170, 170, 175)
+            (sz, _), _ = cv2.getTextSize(k, cv2.FONT_HERSHEY_SIMPLEX, 3.0, 6)
+            cv2.putText(img, k, (x + (tw - sz) // 2, 195),
+                        cv2.FONT_HERSHEY_SIMPLEX, 3.0, tcol, 6)
+        cv2.putText(img, "VISION-ONLY (no keys sent) - press the lit key - q to stop",
+                    (pad, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 180, 185), 1)
+        cv2.imshow("autobot - WWM cue", img)
         if cv2.waitKey(16) & 0xFF in (ord("q"), 27):
             break
     cv2.destroyAllWindows()
@@ -64,6 +71,8 @@ def main() -> int:
     ap.add_argument("--title", default=DEFAULT_MATCH)
     ap.add_argument("--list", action="store_true", help="list windows and exit")
     ap.add_argument("--method", default="dxcam", choices=["dxcam", "printwindow"])
+    ap.add_argument("--offset", type=int, default=None,
+                    help="cue lead in px (higher = lights earlier; default 90)")
     ap.add_argument("--actuate", action="store_true",
                     help="SEND keys to the game (unsafe on anti-cheat titles)")
     args = ap.parse_args()
@@ -96,6 +105,8 @@ def main() -> int:
 
     cfg = WWMConfig(target_hwnd=win.hwnd, window_method=args.method,
                     dry_run=not args.actuate)
+    if args.offset is not None:
+        cfg.press_offset_px = args.offset
     last_press = [0.0] * 6
 
     def on_event(lane, kind):
